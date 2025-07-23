@@ -195,9 +195,9 @@ if uploaded_file:
         st.markdown(f"### {row['Text']}")
         st.markdown(f"[Open Link]({row['URL']})")
         
-        col1, col2, col3 = st.columns(3)
-
         col2.write(f"**Passed:** {int(st.session_state.pass_count)} | **Bulleted:** {int(st.session_state.bullet_count)} | **Total:** {int(st.session_state.review_count)}")
+
+        col1, col2, col3 = st.columns(3)
 
         if col1.button("✅ Pass"):
             handle_pass()
