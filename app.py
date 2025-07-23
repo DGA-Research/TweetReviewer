@@ -208,6 +208,10 @@ if uploaded_file:
         if col1.button("⬅️ Back"):
             handle_back()
 
+        st.markdown(f"used_topics, {used_topics}" )
+        st.markdown(f"topic_history, {topic_history}")
+        st.markdown(f"history_stack, {history_stack}")
+
     # --- Downloads ---
     st.divider()
 
