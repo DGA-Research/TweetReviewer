@@ -21,7 +21,10 @@ uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
 
 if uploaded_file:
     df = pd.read_excel(uploaded_file)
-    st.write("Columns found:", df.columns.tolist())
+    df.columns = df.columns.str.strip()
+    df = df[df["Text"].notna()].reset_index(drop=True)
+    df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+    st.write("Cleaned columns:", df.columns.tolist())
     if "df" not in st.session_state:
         df = pd.read_excel(uploaded_file)
         if "Reviewed Passed" not in df.columns:
