@@ -27,8 +27,6 @@ if "bullet_mode" not in st.session_state:
 if "topic_history" not in st.session_state:
     st.session_state.topic_history = set()
 
-start = st.button("🟢 Start!") 
-
 # Add a reset button next to it
 if st.button("🔄 Reset Session"):
     for key in st.session_state.keys():
