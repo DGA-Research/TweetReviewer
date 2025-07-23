@@ -21,6 +21,12 @@ platform = st.text_input("Enter Social Media Platform: ")
 handle = st.text_input("Enter Social Media Handle: (ex: JoshSchoemann) ")
 uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
 
+# Add a reset button next to it
+if st.button("🔄 Reset Session"):
+    for key in st.session_state.keys():
+        del st.session_state[key]
+    st.experimental_rerun()  # Force app to restart with clean state
+
 if uploaded_file:
     df = pd.read_excel(uploaded_file)
     df.columns = df.columns.str.strip()
