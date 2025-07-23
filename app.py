@@ -17,6 +17,8 @@ SAVE_INTERVAL = 20
 # --- Upload ---
 st.title("📑 Tweet Reviewer")
 
+platform = st.text_input("Enter Social Media Platform: ")
+handle = st.text_input("Enter Social Media Handle: ")
 uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
 
 if uploaded_file:
@@ -95,12 +97,12 @@ if uploaded_file:
         run1.font.name = "Arial"
         run1.font.size = Pt(10)
 
-        add_hyperlink_date_only(para1, "[X, @JoshSchoemann, ", date_str, "]", url)
+        add_hyperlink_date_only(para1, f"[{platform}, @{handle}, ", date_str, "]", url)
         doc.add_paragraph()
 
         para2 = doc.add_paragraph()
         para2.alignment = 1
-        add_hyperlink_date_only(para2, "[X, @JoshSchoemann, ", date_str, "]", url)
+        add_hyperlink_date_only(para2, f"[{platform}, @{handle}, ", date_str, "]", url)
         doc.add_paragraph()
 
     def add_hyperlink_date_only(paragraph, prefix, date_part, suffix, url):
