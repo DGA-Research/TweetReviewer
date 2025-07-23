@@ -28,7 +28,7 @@ if st.button("🔄 Reset Session"):
     for key in st.session_state.keys():
         del st.session_state[key]
 
-if uploaded_file and start and platform and handle:
+if uploaded_file:
     df = pd.read_excel(uploaded_file)
     df.columns = df.columns.str.strip()
     df = df[df["Text"].notna()].reset_index(drop=True)
