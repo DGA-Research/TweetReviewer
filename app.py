@@ -89,7 +89,7 @@ if uploaded_file:
             st.session_state.used_topics.add(topic_upper)
             st.markdown(f"used_topics, {topic_upper}")
             st.session_state.topic_list.append(topic_upper)
-            st.markdown(f"topic list, {topic_list")
+            st.markdown(f"topic list, {topic_list}")
         
         # st.markdown(row)
         text = row["Text"]
