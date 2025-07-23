@@ -86,8 +86,10 @@ if uploaded_file:
         if topic_upper not in st.session_state.used_topics:
             doc.add_paragraph(topic_upper, style="Heading 2")
             st.session_state.used_topics.add(topic_upper)
+
+        st.markdown(f"used_topics, {used_topics}")
         
-        st.markdown(row)
+        # st.markdown(row)
         text = row["Text"]
         url = row["URL"]
         date = parse_date(row["Date"])
@@ -207,9 +209,6 @@ if uploaded_file:
 
         if col1.button("⬅️ Back"):
             handle_back()
-
-        st.markdown(f"topic_history, {topic_history}")
-        st.markdown(f"history_stack, {history_stack}")
 
     # --- Downloads ---
     st.divider()
