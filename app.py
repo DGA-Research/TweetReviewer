@@ -207,7 +207,7 @@ if uploaded_file:
             if topic.strip():
                 handle_bullet(topic.strip())
 
-        if col3.button("⬅️ Back"):
+        if col1.button("⬅️ Back"):
             handle_back()
 
     # --- Downloads ---
