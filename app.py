@@ -184,7 +184,13 @@ if uploaded_file:
         st.success("✅ All rows reviewed!")
     else:
         row = df.iloc[st.session_state.current_index]
-        st.markdown(f"### {row['Text']}")
+        tweet_text = row["Text"]
+
+        st.markdown(f"""
+        <pre style="white-space: pre-wrap; word-wrap: break-word; font-size: 1.1rem; font-family: Arial, sans-serif;">
+        {tweet_text}
+        </pre>
+        """, unsafe_allow_html=True)
         st.markdown(f"[Open Link]({row['URL']})")
 
         st.write(f"**Passed:** {int(st.session_state.pass_count)} | **Bulleted:** {int(st.session_state.bullet_count)} | **Total:** {int(st.session_state.review_count)}")
