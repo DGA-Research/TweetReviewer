@@ -244,21 +244,3 @@ if uploaded_file:
 else:
     st.info("⬆️ Please upload an Excel file to begin.")
 
-
-
-
-# user interface
-"""
-
-Upload CSV
-
-For row in __ etc.
-
-Need to have a new file to write to
-
-# Options:
-  Twitter Handle
-  Bad words or not
-
-"""
-
