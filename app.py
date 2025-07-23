@@ -195,7 +195,7 @@ if uploaded_file:
         st.markdown(f"### {row['Text']}")
         st.markdown(f"[Open Link]({row['URL']})")
         
-        col2.write(f"**Passed:** {int(st.session_state.pass_count)} | **Bulleted:** {int(st.session_state.bullet_count)} | **Total:** {int(st.session_state.review_count)}")
+        st.write(f"**Passed:** {int(st.session_state.pass_count)} | **Bulleted:** {int(st.session_state.bullet_count)} | **Total:** {int(st.session_state.review_count)}")
 
         col1, col2, col3 = st.columns(3)
 
