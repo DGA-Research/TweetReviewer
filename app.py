@@ -31,7 +31,6 @@ if uploaded_file:
     df.columns = df.columns.str.strip()
     df = df[df["Text"].notna()].reset_index(drop=True)
     df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
-    st.write("Cleaned columns:", df.columns.tolist())
     if "df" not in st.session_state:
         df = pd.read_excel(uploaded_file)
         if "Reviewed Passed" not in df.columns:
