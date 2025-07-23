@@ -21,12 +21,6 @@ platform = st.text_input("Enter Social Media Platform: ")
 handle = st.text_input("Enter Social Media Handle: (ex: JoshSchoemann) ")
 uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
 
-if "bullet_mode" not in st.session_state:
-    st.session_state.bullet_mode = False
-
-if "topic_history" not in st.session_state:
-    st.session_state.topic_history = set()
-
 # Add a reset button next to it
 if st.button("🔄 Reset Session"):
     for key in st.session_state.keys():
@@ -208,28 +202,11 @@ if uploaded_file:
 
         topic = col2.text_input("Topic", key="topic_input")
         if col2.button("💬 Bullet"):
-            # if topic.strip():
-                # handle_bullet(topic.strip())
-            st.session_state.bullet_mode = True
+            if topic.strip():
+                handle_bullet(topic.strip())
 
         if col1.button("⬅️ Back"):
             handle_back()
-
-        if st.session_state.bullet_mode:
-            st.write("### Enter a new topic or pick an existing one:")
-            new_topic = st.text_input("New topic", key="new_topic_input")
-    
-            existing_topic = st.selectbox(
-                "Or pick an existing topic",
-                options=sorted(st.session_state.topic_history)
-            ) if st.session_state.topic_history else ""
-
-        if st.button("✅ Confirm Topic"):
-            topic = new_topic.strip() or existing_topic.strip()
-            if topic:
-                st.session_state.topic_history.add(topic.upper())
-                handle_bullet(topic.upper())
-                st.session_state.bullet_mode = False
 
     # --- Downloads ---
     st.divider()
