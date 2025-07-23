@@ -194,10 +194,10 @@ if uploaded_file:
         row = df.iloc[st.session_state.current_index]
         st.markdown(f"### {row['Text']}")
         st.markdown(f"[Open Link]({row['URL']})")
-
-        st.write(f"**Passed:** {int(st.session_state.pass_count)} | **Bulleted:** {int(st.session_state.bullet_count)} | **Total:** {int(st.session_state.review_count)}")
-
+        
         col1, col2, col3 = st.columns(3)
+
+        col2.write(f"**Passed:** {int(st.session_state.pass_count)} | **Bulleted:** {int(st.session_state.bullet_count)} | **Total:** {int(st.session_state.review_count)}")
 
         if col1.button("✅ Pass"):
             handle_pass()
