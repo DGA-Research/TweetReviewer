@@ -58,7 +58,6 @@ if uploaded_file:
         st.session_state.used_topics = set()
         st.session_state.topic_history = []
         st.session_state.history_stack = []
-        st.session_state.topic_list = []
 
     df = st.session_state.df
 
@@ -88,8 +87,6 @@ if uploaded_file:
             doc.add_paragraph(topic_upper, style="Heading 2")
             st.session_state.used_topics.add(topic_upper)
             st.markdown(f"used_topics, {topic_upper}")
-            st.session_state.topic_list.append(topic_upper)
-            st.markdown(f"topic list, {topic_list}")
         
         # st.markdown(row)
         text = row["Text"]
