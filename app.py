@@ -18,7 +18,7 @@ SAVE_INTERVAL = 20
 st.title("📑 Tweet Reviewer")
 
 platform = st.text_input("Enter Social Media Platform: ")
-handle = st.text_input("Enter Social Media Handle: ")
+handle = st.text_input("Enter Social Media Handle: (ex: JoshSchoemann) ")
 uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
 
 if uploaded_file:
