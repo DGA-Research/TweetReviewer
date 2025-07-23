@@ -21,6 +21,12 @@ platform = st.text_input("Enter Social Media Platform: ")
 handle = st.text_input("Enter Social Media Handle: (ex: JoshSchoemann) ")
 uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
 
+if "bullet_mode" not in st.session_state:
+    st.session_state.bullet_mode = False
+
+if "topic_history" not in st.session_state:
+    st.session_state.topic_history = set()
+
 start = st.button("🟢 Start!") 
 
 # Add a reset button next to it
