@@ -212,13 +212,13 @@ if uploaded_file:
             handle_back()
 
         if st.session_state.bullet_mode:
-        st.write("### Enter a new topic or pick an existing one:")
-        new_topic = st.text_input("New topic", key="new_topic_input")
-
-        existing_topic = st.selectbox(
-            "Or pick an existing topic",
-            options=sorted(st.session_state.topic_history)
-        ) if st.session_state.topic_history else ""
+            st.write("### Enter a new topic or pick an existing one:")
+            new_topic = st.text_input("New topic", key="new_topic_input")
+    
+            existing_topic = st.selectbox(
+                "Or pick an existing topic",
+                options=sorted(st.session_state.topic_history)
+            ) if st.session_state.topic_history else ""
 
         if st.button("✅ Confirm Topic"):
             topic = new_topic.strip() or existing_topic.strip()
