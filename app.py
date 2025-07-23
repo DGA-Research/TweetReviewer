@@ -86,7 +86,6 @@ if uploaded_file:
         if topic_upper not in st.session_state.used_topics:
             doc.add_paragraph(topic_upper, style="Heading 2")
             st.session_state.used_topics.add(topic_upper)
-            st.markdown(f"used_topics, {topic_upper}")
         
         # st.markdown(row)
         text = row["Text"]
