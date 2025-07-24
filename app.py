@@ -203,7 +203,7 @@ if uploaded_file:
             handle_pass()
 
         # topic = col2.text_input("Topic", key="topic_input") 
-        topic = col2.st_free_text_select(
+        topic = st_free_text_select(
             label="Topic",
             options=topics,
             index=None,
