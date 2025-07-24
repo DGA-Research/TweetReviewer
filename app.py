@@ -9,6 +9,7 @@ from docx.enum.style import WD_STYLE_TYPE
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 import streamlit as st
+from streamlit_free_text_select import st_free_text_select
 
 st.set_page_config(page_title="Tweet Reviewer", layout="wide")
 
@@ -27,6 +28,7 @@ if st.button("🔄 Reset Session"):
         del st.session_state[key]
 
 if uploaded_file:
+    topics = ['Economy', 'Gun Control', 'A', 'B']
     df = pd.read_excel(uploaded_file)
     df.columns = df.columns.str.strip()
     df = df[df["Text"].notna()].reset_index(drop=True)
@@ -200,7 +202,18 @@ if uploaded_file:
         if col1.button("✅ Pass"):
             handle_pass()
 
-        topic = col2.text_input("Topic", key="topic_input")
+        # topic = col2.text_input("Topic", key="topic_input") 
+        topic = col2.st_free_text_select(
+            label="Topic",
+            options=topics,
+            index=None,
+            format_func=lambda x: x.lower(),
+            placeholder="Enter Topic",
+            disabled=False,
+            delay=300,
+            label_visibility="visible",
+        )
+
         if col2.button("💬 Bullet"):
             if topic.strip():
                 handle_bullet(topic.strip())
