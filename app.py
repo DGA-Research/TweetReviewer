@@ -202,17 +202,18 @@ if uploaded_file:
         if col1.button("✅ Pass"):
             handle_pass()
 
-        # topic = col2.text_input("Topic", key="topic_input") 
-        topic = st_free_text_select(
-            label="Topic",
-            options=topics,
-            index=None,
-            format_func=lambda x: x.lower(),
-            placeholder="Enter Topic",
-            disabled=False,
-            delay=300,
-            label_visibility="visible",
-        )
+        with col2:
+            # topic = col2.text_input("Topic", key="topic_input") 
+            topic = st_free_text_select(
+                label="Topic",
+                options=topics,
+                index=None,
+                format_func=lambda x: x.lower(),
+                placeholder="Enter Topic",
+                disabled=False,
+                delay=300,
+                label_visibility="visible",
+            )
 
         if col2.button("💬 Bullet"):
             if topic.strip():
