@@ -26,9 +26,10 @@ uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
 if st.button("🔄 Reset Session"):
     for key in st.session_state.keys():
         del st.session_state[key]
+        
+topics = ['Key Moments', 'Campaigns For Congress', 'Cycle Year', 'Abortion and Family Planning Issues', 'Agriculture Issues', 'Budget Issues', 'Campaign Finance and Election Law Issues', 'Consumer Issues']
 
 if uploaded_file:
-    topics = ['Economy', 'Gun Control', 'A', 'B']
     df = pd.read_excel(uploaded_file)
     df.columns = df.columns.str.strip()
     df = df[df["Text"].notna()].reset_index(drop=True)
