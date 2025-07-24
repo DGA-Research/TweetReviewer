@@ -214,6 +214,8 @@ if uploaded_file:
                 delay=300,
                 label_visibility="visible",
             )
+            if topic not in topics:
+                topics.append(topic)
 
         if col2.button("💬 Bullet"):
             if topic.strip():
