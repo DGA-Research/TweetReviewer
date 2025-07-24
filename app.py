@@ -27,7 +27,7 @@ if st.button("🔄 Reset Session"):
     for key in st.session_state.keys():
         del st.session_state[key]
         
-topics = ['Key Moments', 'Campaigns For Congress', 'Cycle Year', 'Abortion and Family Planning Issues', 'Agriculture Issues', 'Budget Issues', 'Campaign Finance and Election Law Issues', 'Consumer Issues', 'Crime and Public Safety Issues', 'Defense Issues', 'Economy and Job Issues', 'Education Issues', 'Energy Issues', 'Envionrmental Issues', 'Fema and Disaster Relief Issues', 'Foreign Policy Issues', 'Gun Issues', 'Health Care Issues', 'Housing Issues', 'Immigration and Border Issues', 'Labor and Working Family Issues', 'LGBT Issues', 'Military Personnel Issues', 'Seniors Issues','Tax Issues', 'Technology Issues', 'Terrorism and Homeland Security', 'Trade Issues', 'Transportation Issues', 'Veterans Issues', 'Women's Issues']
+topics = ['Key Moments', 'Campaigns For Congress', 'Cycle Year', 'Abortion and Family Planning Issues', 'Agriculture Issues', 'Budget Issues', 'Campaign Finance and Election Law Issues', 'Consumer Issues', 'Crime and Public Safety Issues', 'Defense Issues', 'Economy and Job Issues', 'Education Issues', 'Energy Issues', 'Envionrmental Issues', 'Fema and Disaster Relief Issues', 'Foreign Policy Issues', 'Gun Issues', 'Health Care Issues', 'Housing Issues', 'Immigration and Border Issues', 'Labor and Working Family Issues', 'LGBT Issues', 'Military Personnel Issues', 'Seniors Issues','Tax Issues', 'Technology Issues', 'Terrorism and Homeland Security', 'Trade Issues', 'Transportation Issues', 'Veteran\'s Issues', 'Women\'s Issues']
 
 if uploaded_file:
     df = pd.read_excel(uploaded_file)
