@@ -174,6 +174,7 @@ if uploaded_file:
     def handle_back():
         if st.session_state.history_stack:
             last_index, action = st.session_state.history_stack.pop()
+            last_index, action = st.session_state.history_stack.pop()
             if action == "pass":
                 df.at[last_index, "Reviewed Passed"] = False
                 st.session_state.pass_count -= 1
@@ -181,7 +182,7 @@ if uploaded_file:
                 df.at[last_index, "Reviewed Bulleted"] = False
                 st.session_state.bullet_count -= 1
             st.session_state.review_count -= 1
-            st.session_state.current_index = last_index - 1
+            st.session_state.current_index = last_index
 
     # --- Skip reviewed rows ---
     while st.session_state.current_index < len(df) and (
