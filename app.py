@@ -1,4 +1,4 @@
-import os
+Ffimport os
 import re
 import io
 import pandas as pd
@@ -196,7 +196,7 @@ if uploaded_file:
         row = df.iloc[st.session_state.current_index]
         st.markdown(f"### {row['Text']}")
         if flags_button:
-            st.markdown(f"#### Flags: {row['All_Bad_Words']}")
+            st.markdown(f"##### Flags: {row['All_Bad_Words']}")
         st.markdown(f"[Open Link]({row['URL']})")
         
         st.write(f"**Passed:** {int(st.session_state.pass_count)} | **Bulleted:** {int(st.session_state.bullet_count)} | **Total:** {int(st.session_state.review_count)}")
