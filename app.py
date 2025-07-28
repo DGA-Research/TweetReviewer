@@ -88,7 +88,6 @@ if uploaded_file:
         doc = st.session_state.doc
 
         header_title = header.title()
-        header_title = f"**{header}**"
 
         if topic_upper not in st.session_state.used_topics:
             doc.add_paragraph(topic_upper, style="Heading 2")
@@ -110,7 +109,7 @@ if uploaded_file:
         run0.bold = True
         
         para1 = doc.add_paragraph()
-        run1 = para1.add_run(header_title + " " + quoted + " ")
+        run1 = para1.add_run(quoted + " ")
         run1.font.name = "Arial"
         run1.font.size = Pt(10)
 
