@@ -234,7 +234,7 @@ if uploaded_file:
         if col1.button("⬅️ Back"):
             handle_back()
         
-        header = st.input("Write a header: ")
+        header = st.text_input("Write a header: ")
 
     # --- Downloads ---
     st.divider()
