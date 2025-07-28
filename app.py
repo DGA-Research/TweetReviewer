@@ -88,6 +88,8 @@ if uploaded_file:
         topic_upper = topic.upper()
         doc = st.session_state.doc
 
+        header_title = header.title()
+
         if topic_upper not in st.session_state.used_topics:
             doc.add_paragraph(topic_upper, style="Heading 2")
             st.session_state.used_topics.add(topic_upper)
@@ -102,7 +104,7 @@ if uploaded_file:
         quoted = f'"{text}"'
 
         para1 = doc.add_paragraph()
-        run1 = para1.add_run(quoted + " ")
+        run1 = para1.add_run(header + " " + quoted + " ")
         run1.font.name = "Arial"
         run1.font.size = Pt(10)
 
@@ -232,6 +234,8 @@ if uploaded_file:
 
         if col1.button("⬅️ Back"):
             handle_back()
+        
+        header = st.input("Write a header: ")
 
     # --- Downloads ---
     st.divider()
