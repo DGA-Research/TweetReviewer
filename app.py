@@ -22,6 +22,7 @@ platform = st.text_input("Enter Social Media Platform: ")
 handle = st.text_input("Enter Social Media Handle: (ex: JoshSchoemann) ")
 uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
 flags_button = st.checkbox("Include Flags (include column titled All_Bad_Words")
+TEST = st.text_area("EDIT THIS TEXT: HEYYYYYYY", value="This is some default text that you can modify.")
 
 # Add a reset button next to it
 if st.button("🔄 Reset Session"):
