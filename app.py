@@ -181,7 +181,7 @@ if uploaded_file:
                 df.at[last_index, "Reviewed Bulleted"] = False
                 st.session_state.bullet_count -= 1
             st.session_state.review_count -= 1
-            st.session_state.current_index = last_index
+            st.session_state.current_index = last_index - 1
 
     # --- Skip reviewed rows ---
     while st.session_state.current_index < len(df) and (
