@@ -196,7 +196,8 @@ if uploaded_file:
         row = df.iloc[st.session_state.current_index]
         st.markdown(f"### {row['Text']}")
         if flags_button:
-            bad_words = (row['All_Bad_Words']).str.replace(r',$', 'X', regex=True)
+            bad_words = row['All_Bad_Words'].fillna('')
+            bad_words = bad_words.str.replace(r',$', 'X', regex=True)
             st.markdown(f"Flags: {bad_words}")
         st.markdown(f"[Open Link]({row['URL']})")
         
