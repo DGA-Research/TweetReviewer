@@ -92,7 +92,7 @@ if uploaded_file:
         
         # st.markdown(row)
         text = row["Text"]
-        flags_label = row['bad_words_found']
+        flags_label = row['All_Bad_Words']
         url = row["URL"]
         date = parse_date(row["Date"])
         date_str = f"{date.month}/{date.day}/{str(date.year)[2:]}" if date else "??/??/??"
