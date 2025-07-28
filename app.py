@@ -88,7 +88,7 @@ if uploaded_file:
         doc = st.session_state.doc
 
         header_title = header.title()
-        header_title = f"\033[1m{title}\033[0m"
+        header_title = f"\033[1m{header}\033[0m"
 
         if topic_upper not in st.session_state.used_topics:
             doc.add_paragraph(topic_upper, style="Heading 2")
