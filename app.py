@@ -197,7 +197,7 @@ if uploaded_file:
         st.markdown(f"### {row['Text']}")
         if flags_button:
             bad_words = row['All_Bad_Words'].str.replace(r',$', 'X', regex=True)
-            st.markdown(f"Flags: {bad_words]}")
+            st.markdown(f"Flags: {bad_words}")
         st.markdown(f"[Open Link]({row['URL']})")
         
         st.write(f"**Passed:** {int(st.session_state.pass_count)} | **Bulleted:** {int(st.session_state.bullet_count)} | **Total:** {int(st.session_state.review_count)}")
