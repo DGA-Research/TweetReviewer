@@ -226,6 +226,8 @@ if uploaded_file:
             )
             if topic not in topics:
                 topics.append(topic)
+                
+        header = st.text_input("Write a header: ")
 
         if col2.button("💬 Bullet"):
             if topic.strip():
@@ -234,7 +236,6 @@ if uploaded_file:
         if col1.button("⬅️ Back"):
             handle_back()
         
-        header = st.text_input("Write a header: ")
 
     # --- Downloads ---
     st.divider()
