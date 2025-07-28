@@ -103,6 +103,12 @@ if uploaded_file:
         text = normalize_spaces(text)
         quoted = f'"{text}"'
 
+        para0 = doc.add_paragraph()
+        run0 = para0.add_run(header_title")
+        run0.font.name = "Arial"
+        run0.font.size = Pt(10)
+        run0.bold = True
+        
         para1 = doc.add_paragraph()
         run1 = para1.add_run(header_title + " " + quoted + " ")
         run1.font.name = "Arial"
