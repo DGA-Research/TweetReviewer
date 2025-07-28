@@ -23,7 +23,7 @@ st.markdown(f"##### Required Headers: \"URL\", \"Text\", \"Date\" (order of colu
 platform = st.text_input("Enter Social Media Platform: ")
 handle = st.text_input("Enter Social Media Handle: (ex: JoshSchoemann) ")
 uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
-flags_button = st.checkbox("Include Flags (requires column titled \"All_Bad_Words\"")
+flags_button = st.checkbox("Include Flags (requires column titled \"All_Bad_Words\")")
 
 # Add a reset button next to it
 if st.button("🔄 Reset Session"):
