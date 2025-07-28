@@ -197,7 +197,7 @@ if uploaded_file:
         st.markdown(f"### {row['Text']}")
         if flags_button:
             bad_words = str(row['All_Bad_Words'])
-            bad_words = bad_words.str.replace(r',$', 'X', regex=True)
+            bad_words = bad_words.replace(r',$', 'X', regex=True)
             st.markdown(f"Flags: {bad_words}")
         st.markdown(f"[Open Link]({row['URL']})")
         
