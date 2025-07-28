@@ -198,7 +198,7 @@ if uploaded_file:
         if flags_button:
             bad_words = str(row['All_Bad_Words'])
             bad_words = bad_words.replace(r',$', 'X')
-            bad_words = bad_words.fillna("")
+            bad_words = bad_words.replace('NaN', '')
             st.markdown(f"Flags: {bad_words}")
         st.markdown(f"[Open Link]({row['URL']})")
         
