@@ -186,7 +186,6 @@ if uploaded_file:
     def handle_back():
         if st.session_state.history_stack:
             last_index, action = st.session_state.history_stack.pop()
-            last_index, action = st.session_state.history_stack.pop()
             if action == "pass":
                 df.at[last_index, "Reviewed Passed"] = False
                 st.session_state.pass_count -= 1
