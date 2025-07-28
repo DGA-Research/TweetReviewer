@@ -244,8 +244,6 @@ if uploaded_file:
 
         if col1.button("⬅️ Back"):
             handle_back()
-            handle_back()
-        
 
     # --- Downloads ---
     st.divider()
