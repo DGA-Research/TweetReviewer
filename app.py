@@ -15,6 +15,9 @@ st.set_page_config(page_title="Tweet Reviewer", layout="wide")
 
 SAVE_INTERVAL = 20
 
+if "just_went_back" not in st.session_state:
+    st.session_state.just_went_back = False
+
 # --- Upload ---
 st.title("📑 Tweet Reviewer")
 
@@ -194,13 +197,16 @@ if uploaded_file:
                 st.session_state.bullet_count -= 1
             st.session_state.review_count -= 1
             st.session_state.current_index = last_index
+            st.session_state.just_went_back = True
+
 
     # --- Skip reviewed rows ---
-    while st.session_state.current_index < len(df) and (
-        df.at[st.session_state.current_index, "Reviewed Passed"]
-        or df.at[st.session_state.current_index, "Reviewed Bulleted"]
-    ):
-        st.session_state.current_index += 1
+    if not st.session_state.just_went_back:
+        while st.session_state.current_index < len(df) and (
+            df.at[st.session_state.current_index, "Reviewed Passed"]
+            or df.at[st.session_state.current_index, "Reviewed Bulleted"]
+        ):
+            st.session_state.current_index += 1
 
     if st.session_state.current_index >= len(df):
         st.success("✅ All rows reviewed!")
@@ -213,6 +219,7 @@ if uploaded_file:
             bad_words = re.sub(r', $', '', bad_words)
             st.markdown(f"Flags: {bad_words}")
         st.markdown(f"[Open Link]({row['URL']})")
+        st.session_state.just_went_back = False
         
         st.write(f"**Passed:** {int(st.session_state.pass_count)} | **Bulleted:** {int(st.session_state.bullet_count)} | **Total:** {int(st.session_state.review_count)}")
 
