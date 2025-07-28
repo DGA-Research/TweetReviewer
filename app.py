@@ -92,6 +92,7 @@ if uploaded_file:
         
         # st.markdown(row)
         text = row["Text"]
+        flags_label = row['bad_words_found']
         url = row["URL"]
         date = parse_date(row["Date"])
         date_str = f"{date.month}/{date.day}/{str(date.year)[2:]}" if date else "??/??/??"
@@ -194,6 +195,7 @@ if uploaded_file:
     else:
         row = df.iloc[st.session_state.current_index]
         st.markdown(f"### {row['Text']}")
+        st.markdown(flags_label)
         st.markdown(f"[Open Link]({row['URL']})")
         
         st.write(f"**Passed:** {int(st.session_state.pass_count)} | **Bulleted:** {int(st.session_state.bullet_count)} | **Total:** {int(st.session_state.review_count)}")
