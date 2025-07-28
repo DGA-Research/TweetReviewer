@@ -18,7 +18,7 @@ SAVE_INTERVAL = 20
 # --- Upload ---
 st.title("📑 Tweet Reviewer")
 
-st.markdown(f"##### Required Headers: URL, Text, Date (order does not matter)")
+st.markdown(f"##### Required Headers: \"URL\", \"Text\", \"Date\" (order does not matter)")
 
 platform = st.text_input("Enter Social Media Platform: ")
 handle = st.text_input("Enter Social Media Handle: (ex: JoshSchoemann) ")
