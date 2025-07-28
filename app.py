@@ -21,6 +21,7 @@ st.title("📑 Tweet Reviewer")
 platform = st.text_input("Enter Social Media Platform: ")
 handle = st.text_input("Enter Social Media Handle: (ex: JoshSchoemann) ")
 uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
+flags_button = st.button("Include Flags (include column titled All_Bad_Words")
 
 # Add a reset button next to it
 if st.button("🔄 Reset Session"):
@@ -194,7 +195,8 @@ if uploaded_file:
     else:
         row = df.iloc[st.session_state.current_index]
         st.markdown(f"### {row['Text']}")
-        st.markdown(row['All_Bad_Words'])
+        if flags_button:
+            st.markdown(f"# Flags: row['All_Bad_Words']")
         st.markdown(f"[Open Link]({row['URL']})")
         
         st.write(f"**Passed:** {int(st.session_state.pass_count)} | **Bulleted:** {int(st.session_state.bullet_count)} | **Total:** {int(st.session_state.review_count)}")
