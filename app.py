@@ -15,12 +15,8 @@ st.set_page_config(page_title="Tweet Reviewer", layout="wide")
 
 SAVE_INTERVAL = 20
 
-if "just_went_back" not in st.session_state:
-    st.session_state.just_went_back = False
-
 # --- Upload ---
 st.title("📑 Tweet Reviewer")
-
 st.markdown(f"##### Required Headers: \"URL\", \"Text\", \"Date\" (order of columns does not matter)")
 
 platform = st.text_input("Enter Social Media Platform: ")
@@ -33,7 +29,7 @@ if st.button("🔄 Reset Session"):
     for key in st.session_state.keys():
         del st.session_state[key]
 st.divider()
-        
+
 topics = ['Key Moments', 'Campaigns For Congress', 'Cycle Year', 'Abortion and Family Planning Issues', 'Agriculture Issues', 'Budget Issues', 'Campaign Finance and Election Law Issues', 'Consumer Issues', 'Crime and Public Safety Issues', 'Defense Issues', 'Economy and Job Issues', 'Education Issues', 'Energy Issues', 'Envionrmental Issues', 'Fema and Disaster Relief Issues', 'Foreign Policy Issues', 'Gun Issues', 'Health Care Issues', 'Housing Issues', 'Immigration and Border Issues', 'Labor and Working Family Issues', 'LGBT Issues', 'Military Personnel Issues', 'Seniors Issues','Tax Issues', 'Technology Issues', 'Terrorism and Homeland Security', 'Trade Issues', 'Transportation Issues', 'Veteran\'s Issues', 'Women\'s Issues']
 
 if uploaded_file:
@@ -41,15 +37,14 @@ if uploaded_file:
     df.columns = df.columns.str.strip()
     df = df[df["Text"].notna()].reset_index(drop=True)
     df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+
     if "df" not in st.session_state:
-        df = pd.read_excel(uploaded_file)
         if "Reviewed Passed" not in df.columns:
             df["Reviewed Passed"] = False
         if "Reviewed Bulleted" not in df.columns:
             df["Reviewed Bulleted"] = False
         st.session_state.df = df
 
-        # Word doc
         doc = Document()
         style = doc.styles["Normal"]
         style.font.name = "Arial"
@@ -68,6 +63,7 @@ if uploaded_file:
         st.session_state.used_topics = set()
         st.session_state.topic_history = []
         st.session_state.history_stack = []
+        st.session_state.skip_reviewed_rows = True  # flag
 
     df = st.session_state.df
 
@@ -98,8 +94,7 @@ if uploaded_file:
         if topic_upper not in st.session_state.used_topics:
             doc.add_paragraph(topic_upper, style="Heading 2")
             st.session_state.used_topics.add(topic_upper)
-        
-        # st.markdown(row)
+
         text = row["Text"]
         url = row["URL"]
         date = parse_date(row["Date"])
@@ -114,8 +109,7 @@ if uploaded_file:
             run0.font.name = "Arial"
             run0.font.size = Pt(10)
             run0.bold = True
-        
-        # para1 = doc.add_paragraph()
+
         run1 = para1.add_run(quoted + " ")
         run1.font.name = "Arial"
         run1.font.size = Pt(10)
@@ -175,6 +169,7 @@ if uploaded_file:
         st.session_state.review_count += 1
         save_if_needed()
         st.session_state.current_index += 1
+        st.session_state.skip_reviewed_rows = True
 
     def handle_bullet(topic):
         idx = st.session_state.current_index
@@ -185,6 +180,7 @@ if uploaded_file:
         st.session_state.review_count += 1
         save_if_needed()
         st.session_state.current_index += 1
+        st.session_state.skip_reviewed_rows = True
 
     def handle_back():
         if st.session_state.history_stack:
@@ -197,16 +193,17 @@ if uploaded_file:
                 st.session_state.bullet_count -= 1
             st.session_state.review_count -= 1
             st.session_state.current_index = last_index
-            st.session_state.just_went_back = True
+            st.session_state.skip_reviewed_rows = False
 
-
-    # --- Skip reviewed rows ---
-    if not st.session_state.just_went_back:
+    # Skip previously reviewed rows unless just went back
+    if st.session_state.skip_reviewed_rows:
         while st.session_state.current_index < len(df) and (
             df.at[st.session_state.current_index, "Reviewed Passed"]
             or df.at[st.session_state.current_index, "Reviewed Bulleted"]
         ):
             st.session_state.current_index += 1
+    else:
+        st.session_state.skip_reviewed_rows = True  # reset for next run
 
     if st.session_state.current_index >= len(df):
         st.success("✅ All rows reviewed!")
@@ -219,17 +216,15 @@ if uploaded_file:
             bad_words = re.sub(r', $', '', bad_words)
             st.markdown(f"Flags: {bad_words}")
         st.markdown(f"[Open Link]({row['URL']})")
-        st.session_state.just_went_back = False
-        
+
         st.write(f"**Passed:** {int(st.session_state.pass_count)} | **Bulleted:** {int(st.session_state.bullet_count)} | **Total:** {int(st.session_state.review_count)}")
 
         col1, col2, col3 = st.columns(3)
 
-        if col1.button("✅ Pass", key = "pass_button"):
+        if col1.button("✅ Pass", key="pass_button"):
             handle_pass()
 
         with col2:
-            # topic = col2.text_input("Topic", key="topic_input") 
             topic = st_free_text_select(
                 label="Topic",
                 options=topics,
@@ -240,22 +235,20 @@ if uploaded_file:
                 delay=300,
                 label_visibility="visible",
             )
-            if topic not in topics:
+            if topic and topic not in topics:
                 topics.append(topic)
-                
-        header = st.text_input("Write a header: ")
+
+        header = st.text_input("Write a header:")
 
         if col2.button("💬 Bullet", key="bullet_button"):
             if topic.strip():
                 handle_bullet(topic.strip())
 
-        if col1.button("⬅️ Back", key = "back_button"):
+        if col1.button("⬅️ Back", key="back_button"):
             handle_back()
 
-    # --- Downloads ---
     st.divider()
 
-    # Save DataFrame to BytesIO
     excel_io = io.BytesIO()
     df.to_excel(excel_io, index=False, engine="openpyxl")
     excel_io.seek(0)
@@ -267,7 +260,6 @@ if uploaded_file:
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
-    # Save Word doc to BytesIO
     word_io = io.BytesIO()
     st.session_state.doc.save(word_io)
     word_io.seek(0)
