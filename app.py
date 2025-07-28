@@ -218,7 +218,7 @@ if uploaded_file:
 
         col1, col2, col3 = st.columns(3)
 
-        if col1.button("✅ Pass"):
+        if col1.button("✅ Pass", key = "pass_button"):
             handle_pass()
 
         with col2:
@@ -238,11 +238,11 @@ if uploaded_file:
                 
         header = st.text_input("Write a header: ")
 
-        if col2.button("💬 Bullet"):
+        if col2.button("💬 Bullet", key="bullet_button"):
             if topic.strip():
                 handle_bullet(topic.strip())
 
-        if col1.button("⬅️ Back"):
+        if col1.button("⬅️ Back", key = "back_button"):
             handle_back()
 
     # --- Downloads ---
