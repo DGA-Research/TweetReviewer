@@ -104,7 +104,7 @@ if uploaded_file:
         quoted = f'"{text}"'
 
         para0 = doc.add_paragraph()
-        run0 = para0.add_run(header_title")
+        run0 = para0.add_run(header_title)
         run0.font.name = "Arial"
         run0.font.size = Pt(10)
         run0.bold = True
