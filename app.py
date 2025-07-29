@@ -248,10 +248,6 @@ if uploaded_file:
     # Bullet button
     if col2.button("💬 Bullet", key="bullet_button", on_click=handle_bullet_callback):
         pass
-    
-        # Back button with callback
-        if col1.button("⬅️ Back", key="back_button", on_click=handle_back):
-            pass
 
     st.divider()
 
