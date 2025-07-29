@@ -161,7 +161,7 @@ if uploaded_file:
     def save_if_needed():
         if st.session_state.review_count % SAVE_INTERVAL == 0:
             st.success("Progress auto-saved!")
-    
+
     def handle_pass():
         idx = st.session_state.current_index
         df.at[idx, "Reviewed Passed"] = True
@@ -171,6 +171,10 @@ if uploaded_file:
         save_if_needed()
         st.session_state.current_index += 1
         st.session_state.skip_reviewed_rows = True
+        # Reset topic and header
+        st.session_state.selected_topic = None
+        if 'header_input' in st.session_state:
+            st.session_state.header_input = ""
 
     def handle_bullet_callback():
         if hasattr(st.session_state, 'selected_topic') and st.session_state.selected_topic and st.session_state.selected_topic.strip():
@@ -183,7 +187,11 @@ if uploaded_file:
             save_if_needed()
             st.session_state.current_index += 1
             st.session_state.skip_reviewed_rows = True
-    
+            # Reset topic and header
+            st.session_state.selected_topic = None
+            if 'header_input' in st.session_state:
+                st.session_state.header_input = ""
+
     def handle_back():
         if st.session_state.history_stack:
             last_index, action = st.session_state.history_stack.pop()
@@ -196,6 +204,10 @@ if uploaded_file:
             st.session_state.review_count -= 1
             st.session_state.current_index = last_index
             st.session_state.skip_reviewed_rows = False
+            # Reset topic and header when going back too
+            st.session_state.selected_topic = None
+            if 'header_input' in st.session_state:
+                st.session_state.header_input = ""
 
     # UI Section with corrected button handling
 
