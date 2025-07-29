@@ -184,17 +184,17 @@ if uploaded_file:
         st.session_state.skip_reviewed_rows = True
 
     def handle_back():
-        if st.session_state.history_stack:
-            last_index, action = st.session_state.history_stack.pop()
-            if action == "pass":
-                df.at[last_index, "Reviewed Passed"] = False
-                st.session_state.pass_count -= 1
-            elif action == "bullet":
-                df.at[last_index, "Reviewed Bulleted"] = False
-                st.session_state.bullet_count -= 1
-            st.session_state.review_count -= 1
-            st.session_state.current_index = last_index
-            st.session_state.skip_reviewed_rows = False
+    if st.session_state.history_stack:
+        last_index, action = st.session_state.history_stack.pop()
+        if action == "pass":
+            df.at[last_index, "Reviewed Passed"] = False
+            st.session_state.pass_count -= 1
+        elif action == "bullet":
+            df.at[last_index, "Reviewed Bulleted"] = False
+            st.session_state.bullet_count -= 1
+        st.session_state.review_count -= 1
+        st.session_state.current_index = last_index
+        st.session_state.skip_reviewed_rows = False
 
     # Skip previously reviewed rows unless just went back
     if st.session_state.skip_reviewed_rows:
@@ -203,8 +203,14 @@ if uploaded_file:
             or df.at[st.session_state.current_index, "Reviewed Bulleted"]
         ):
             st.session_state.current_index += 1
+            
+    # Only reset the flag if we actually skipped rows
+    # If skip_reviewed_rows was False (from back button), keep it False for this render
+    # but set it to True for the next render after user interaction
+    if st.session_state.skip_reviewed_rows:
+        pass  # Keep it True for next time
     else:
-        st.session_state.skip_reviewed_rows = True  # reset for next run
+        st.session_state.skip_reviewed_rows = True  # Reset for next user interaction
 
     if st.session_state.current_index >= len(df):
         st.success("✅ All rows reviewed!")
