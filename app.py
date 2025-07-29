@@ -183,34 +183,20 @@ if uploaded_file:
         st.session_state.current_index += 1
         st.session_state.skip_reviewed_rows = True
 
-    def handle_back():
-        if st.session_state.history_stack:
-            last_index, action = st.session_state.history_stack.pop()
-            if action == "pass":
-                df.at[last_index, "Reviewed Passed"] = False
-                st.session_state.pass_count -= 1
-            elif action == "bullet":
-                df.at[last_index, "Reviewed Bulleted"] = False
-                st.session_state.bullet_count -= 1
-            st.session_state.review_count -= 1
-            st.session_state.current_index = last_index
-            st.session_state.skip_reviewed_rows = False
+   def handle_back():
+    if st.session_state.history_stack:
+        last_index, action = st.session_state.history_stack.pop()
+        if action == "pass":
+            df.at[last_index, "Reviewed Passed"] = False
+            st.session_state.pass_count -= 1
+        elif action == "bullet":
+            df.at[last_index, "Reviewed Bulleted"] = False
+            st.session_state.bullet_count -= 1
+        st.session_state.review_count -= 1
+        st.session_state.current_index = last_index
+        st.session_state.skip_reviewed_rows = False  # This prevents skipping after going back
 
-    # Skip previously reviewed rows unless just went back
-    if st.session_state.skip_reviewed_rows:
-        while st.session_state.current_index < len(df) and (
-            df.at[st.session_state.current_index, "Reviewed Passed"]
-            or df.at[st.session_state.current_index, "Reviewed Bulleted"]
-        ):
-            st.session_state.current_index += 1
-            
-    # Only reset the flag if we actually skipped rows
-    # If skip_reviewed_rows was False (from back button), keep it False for this render
-    # but set it to True for the next render after user interaction
-    if st.session_state.skip_reviewed_rows:
-        pass  # Keep it True for next time
-    else:
-        st.session_state.skip_reviewed_rows = True  # Reset for next user interaction
+    # UI Section with corrected button handling
 
     if st.session_state.current_index >= len(df):
         st.success("✅ All rows reviewed!")
@@ -220,39 +206,45 @@ if uploaded_file:
         if flags_button:
             bad_words = str(row['All_Bad_Words'])
             bad_words = bad_words.replace('nan', '')
-            bad_words = re.sub(r', $', '', bad_words)
+            bad_words = re.sub(r', , '', bad_words)
             st.markdown(f"Flags: {bad_words}")
         st.markdown(f"[Open Link]({row['URL']})")
-
+    
         st.write(f"**Passed:** {int(st.session_state.pass_count)} | **Bulleted:** {int(st.session_state.bullet_count)} | **Total:** {int(st.session_state.review_count)}")
-
+    
         col1, col2, col3 = st.columns(3)
 
-        if col1.button("✅ Pass", key="pass_button"):
-            handle_pass()
+    # Pass button
+    if col1.button("✅ Pass", key="pass_button", on_click=handle_pass):
+        pass
 
-        with col2:
-            topic = st_free_text_select(
-                label="Topic",
-                options=topics,
-                index=None,
-                format_func=lambda x: x.lower(),
-                placeholder="Enter Topic",
-                disabled=False,
-                delay=300,
-                label_visibility="visible",
-            )
-            if topic and topic not in topics:
-                topics.append(topic)
+    # Topic selection and bullet button
+    with col2:
+        topic = st_free_text_select(
+            label="Topic",
+            options=topics,
+            index=None,
+            format_func=lambda x: x.lower(),
+            placeholder="Enter Topic",
+            disabled=False,
+            delay=300,
+            label_visibility="visible",
+        )
+        if topic and topic not in topics:
+            topics.append(topic)
+        
+        # Store selected topic in session state
+        st.session_state.selected_topic = topic
 
-        header = st.text_input("Write a header:")
+    header = st.text_input("Write a header:")
 
-        if col2.button("💬 Bullet", key="bullet_button"):
-            if topic.strip():
-                handle_bullet(topic.strip())
+    # Bullet button
+    if col2.button("💬 Bullet", key="bullet_button", on_click=handle_bullet_callback):
+        pass
 
-        if col1.button("⬅️ Back", key="back_button"):
-            handle_back()
+    # Back button with callback
+    if col1.button("⬅️ Back", key="back_button", on_click=handle_back):
+        pass
 
     st.divider()
 
