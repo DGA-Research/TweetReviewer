@@ -225,10 +225,10 @@ if uploaded_file:
     
         st.write(f"**Passed:** {int(st.session_state.pass_count)} | **Bulleted:** {int(st.session_state.bullet_count)} | **Total:** {int(st.session_state.review_count)}")
     
-    # Replace your existing button section with this:
+    # Button Section
 
     col1, col2, col3 = st.columns(3)
-    
+
     # Back button
     if col1.button("⬅️ Back", key="back_button", on_click=handle_back):
         pass
@@ -255,7 +255,8 @@ if uploaded_file:
         # Store selected topic in session state
         st.session_state.selected_topic = topic
     
-    header = st.text_input("Write a header:")
+    # Header input with key for state control
+    header = st.text_input("Write a header:", key="header_input", value=st.session_state.get('header_input', ''))
     
     # Bullet button
     if col2.button("💬 Bullet", key="bullet_button", on_click=handle_bullet_callback):
