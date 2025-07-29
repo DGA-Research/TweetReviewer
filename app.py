@@ -161,16 +161,16 @@ if uploaded_file:
     def save_if_needed():
         if st.session_state.review_count % SAVE_INTERVAL == 0:
             st.success("Progress auto-saved!")
-
-   def handle_pass():
-    idx = st.session_state.current_index
-    df.at[idx, "Reviewed Passed"] = True
-    st.session_state.history_stack.append((idx, "pass"))
-    st.session_state.pass_count += 1
-    st.session_state.review_count += 1
-    save_if_needed()
-    st.session_state.current_index += 1
-    st.session_state.skip_reviewed_rows = True
+    
+    def handle_pass():
+        idx = st.session_state.current_index
+        df.at[idx, "Reviewed Passed"] = True
+        st.session_state.history_stack.append((idx, "pass"))
+        st.session_state.pass_count += 1
+        st.session_state.review_count += 1
+        save_if_needed()
+        st.session_state.current_index += 1
+        st.session_state.skip_reviewed_rows = True
 
     def handle_bullet_callback():
         if hasattr(st.session_state, 'selected_topic') and st.session_state.selected_topic and st.session_state.selected_topic.strip():
