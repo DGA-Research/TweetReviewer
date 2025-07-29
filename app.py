@@ -162,27 +162,28 @@ if uploaded_file:
         if st.session_state.review_count % SAVE_INTERVAL == 0:
             st.success("Progress auto-saved!")
 
-    def handle_pass():
-        idx = st.session_state.current_index
-        df.at[idx, "Reviewed Passed"] = True
-        st.session_state.history_stack.append((idx, "pass"))
-        st.session_state.pass_count += 1
-        st.session_state.review_count += 1
-        save_if_needed()
-        st.session_state.current_index += 1
-        st.session_state.skip_reviewed_rows = True
+   def handle_pass():
+    idx = st.session_state.current_index
+    df.at[idx, "Reviewed Passed"] = True
+    st.session_state.history_stack.append((idx, "pass"))
+    st.session_state.pass_count += 1
+    st.session_state.review_count += 1
+    save_if_needed()
+    st.session_state.current_index += 1
+    st.session_state.skip_reviewed_rows = True
 
-    def handle_bullet(topic):
-        idx = st.session_state.current_index
-        df.at[idx, "Reviewed Bulleted"] = True
-        st.session_state.history_stack.append((idx, "bullet"))
-        format_text_for_bullet(df.iloc[idx], topic)
-        st.session_state.bullet_count += 1
-        st.session_state.review_count += 1
-        save_if_needed()
-        st.session_state.current_index += 1
-        st.session_state.skip_reviewed_rows = True
-        
+    def handle_bullet_callback():
+        if hasattr(st.session_state, 'selected_topic') and st.session_state.selected_topic and st.session_state.selected_topic.strip():
+            idx = st.session_state.current_index
+            df.at[idx, "Reviewed Bulleted"] = True
+            st.session_state.history_stack.append((idx, "bullet"))
+            format_text_for_bullet(df.iloc[idx], st.session_state.selected_topic.strip())
+            st.session_state.bullet_count += 1
+            st.session_state.review_count += 1
+            save_if_needed()
+            st.session_state.current_index += 1
+            st.session_state.skip_reviewed_rows = True
+    
     def handle_back():
         if st.session_state.history_stack:
             last_index, action = st.session_state.history_stack.pop()
@@ -194,7 +195,7 @@ if uploaded_file:
                 st.session_state.bullet_count -= 1
             st.session_state.review_count -= 1
             st.session_state.current_index = last_index
-            st.session_state.skip_reviewed_rows = False  # This prevents skipping after going back
+            st.session_state.skip_reviewed_rows = False
 
     # UI Section with corrected button handling
 
@@ -212,13 +213,19 @@ if uploaded_file:
     
         st.write(f"**Passed:** {int(st.session_state.pass_count)} | **Bulleted:** {int(st.session_state.bullet_count)} | **Total:** {int(st.session_state.review_count)}")
     
-        col1, col2, col3 = st.columns(3)
+    # Replace your existing button section with this:
 
+    col1, col2, col3 = st.columns(3)
+    
+    # Back button
+    if col1.button("⬅️ Back", key="back_button", on_click=handle_back):
+        pass
+    
     # Pass button
     if col1.button("✅ Pass", key="pass_button", on_click=handle_pass):
         pass
-
-    # Topic selection and bullet button
+    
+    # Topic selection
     with col2:
         topic = st_free_text_select(
             label="Topic",
@@ -235,16 +242,16 @@ if uploaded_file:
         
         # Store selected topic in session state
         st.session_state.selected_topic = topic
-
+    
     header = st.text_input("Write a header:")
-
+    
     # Bullet button
     if col2.button("💬 Bullet", key="bullet_button", on_click=handle_bullet_callback):
         pass
-
-    # Back button with callback
-    if col1.button("⬅️ Back", key="back_button", on_click=handle_back):
-        pass
+    
+        # Back button with callback
+        if col1.button("⬅️ Back", key="back_button", on_click=handle_back):
+            pass
 
     st.divider()
 
