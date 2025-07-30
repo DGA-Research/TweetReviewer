@@ -65,6 +65,7 @@ if uploaded_file:
         st.session_state.topic_history = []
         st.session_state.history_stack = []
         st.session_state.skip_reviewed_rows = True  # flag
+        st.session_state.topic_reset_counter = 0  # Add counter for topic reset
 
     df = st.session_state.df
 
@@ -171,8 +172,8 @@ if uploaded_file:
         save_if_needed()
         st.session_state.current_index += 1
         st.session_state.skip_reviewed_rows = True
-        # Reset topic and header
-        st.session_state.selected_topic = None
+        # Reset topic and header by incrementing counter
+        st.session_state.topic_reset_counter += 1
         if 'header_input' in st.session_state:
             st.session_state.header_input = ""
 
@@ -187,8 +188,8 @@ if uploaded_file:
             save_if_needed()
             st.session_state.current_index += 1
             st.session_state.skip_reviewed_rows = True
-            # Reset topic and header
-            st.session_state.selected_topic = None
+            # Reset topic and header by incrementing counter
+            st.session_state.topic_reset_counter += 1
             if 'header_input' in st.session_state:
                 st.session_state.header_input = ""
 
@@ -204,8 +205,8 @@ if uploaded_file:
             st.session_state.review_count -= 1
             st.session_state.current_index = last_index
             st.session_state.skip_reviewed_rows = False
-            # Reset topic and header when going back too
-            st.session_state.selected_topic = None
+            # Reset topic and header when going back too by incrementing counter
+            st.session_state.topic_reset_counter += 1
             if 'header_input' in st.session_state:
                 st.session_state.header_input = ""
 
@@ -237,7 +238,7 @@ if uploaded_file:
     if col1.button("✅ Pass", key="pass_button", on_click=handle_pass):
         pass
     
-    # Topic selection
+    # Topic selection with dynamic key for reset
     with col2:
         topic = st_free_text_select(
             label="Topic",
@@ -248,6 +249,7 @@ if uploaded_file:
             disabled=False,
             delay=300,
             label_visibility="visible",
+            key=f"topic_select_{st.session_state.topic_reset_counter}"  # Dynamic key for reset
         )
         if topic and topic not in topics:
             topics.append(topic)
