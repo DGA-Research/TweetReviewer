@@ -67,6 +67,10 @@ if uploaded_file:
         st.session_state.skip_reviewed_rows = True  # flag
         st.session_state.topic_reset_counter = 0  # Add counter for topic reset
 
+    # Initialize topic_reset_counter if it doesn't exist (for existing sessions)
+    if 'topic_reset_counter' not in st.session_state:
+        st.session_state.topic_reset_counter = 0
+
     df = st.session_state.df
 
     def normalize_spaces(text):
