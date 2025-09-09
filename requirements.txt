@@ -3,3 +3,4 @@ pandas
 python-docx
 openpyxl
 streamlit-free-text-select
+datetime
