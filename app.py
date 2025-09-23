@@ -1,6 +1,7 @@
 import os
 import re
 from datetime import datetime
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
@@ -59,10 +60,11 @@ def load_dataframe(file_path: str) -> tuple[pd.DataFrame, int]:
     return df, removed
 
 
-def initialize_state(file_path: str) -> None:
+def initialize_state(file_path: str, source_label: str | None = None) -> None:
     df, removed = load_dataframe(file_path)
     st.session_state.df = df
     st.session_state.excel_path = file_path
+    st.session_state.source_label = source_label or Path(file_path).name
     st.session_state.removed_rows = removed
     if removed:
         df.to_excel(file_path, index=False)
@@ -83,6 +85,9 @@ def initialize_state(file_path: str) -> None:
     st.session_state.current_index = 0
     st.session_state.actions_since_save = 0
     st.session_state.last_save_message = None
+    st.session_state.last_export_message = None
+    export_default = f"reviewed_{Path(file_path).stem}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    st.session_state.export_name = export_default
     update_counts()
     advance_to_next_unreviewed()
 
@@ -275,23 +280,40 @@ def main() -> None:
     st.set_page_config(page_title="Tweet Reviewer", layout="wide")
     st.title("Tweet Reviewer")
 
+    uploaded_file = st.sidebar.file_uploader("Upload Excel workbook", type=["xlsx"])
+    if uploaded_file is not None:
+        uploaded_bytes = uploaded_file.getvalue()
+        file_signature = (uploaded_file.name, len(uploaded_bytes))
+        if st.session_state.get("uploaded_file_signature") != file_signature:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            safe_stem = re.sub(r"[^A-Za-z0-9_-]+", "_", Path(uploaded_file.name).stem) or "workbook"
+            destination = Path(f"uploaded_{timestamp}_{safe_stem}.xlsx")
+            destination.write_bytes(uploaded_bytes)
+            st.session_state.uploaded_file_signature = file_signature
+            initialize_state(str(destination), uploaded_file.name)
+            trigger_rerun()
+            st.stop()
+
     excel_files = list_excel_files()
     if not excel_files:
-        st.error("No Excel workbooks found in this directory.")
+        st.warning("No Excel workbooks found. Upload a workbook to get started.")
         return
 
     default_index = 0
     if "excel_path" in st.session_state and st.session_state.excel_path in excel_files:
         default_index = excel_files.index(st.session_state.excel_path)
 
-    selected_file = st.sidebar.selectbox("Workbook", excel_files, index=default_index)
+    selected_file = st.sidebar.selectbox("Workbook", excel_files, index=default_index, key="workbook_select")
 
     if "excel_path" not in st.session_state or selected_file != st.session_state.excel_path:
-        initialize_state(selected_file)
+        initialize_state(selected_file, Path(selected_file).name)
 
     st.sidebar.metric("Passed", st.session_state.pass_count)
     st.sidebar.metric("Bulleted", st.session_state.bullet_count)
     st.sidebar.metric("Total Reviewed", st.session_state.total_reviewed)
+
+    if st.session_state.get("source_label"):
+        st.sidebar.caption(f"Reviewing: {st.session_state.source_label}")
 
     if st.session_state.removed_rows:
         st.sidebar.info(f"Removed {st.session_state.removed_rows} rows without a URL")
@@ -302,6 +324,21 @@ def main() -> None:
     if st.sidebar.button("Save now"):
         save_progress(force=True)
         trigger_rerun()
+
+    if 'export_name' in st.session_state:
+        st.sidebar.text_input("Export reviewed copy as", key="export_name")
+        if st.sidebar.button("Export reviewed copy"):
+            destination = Path(st.session_state.export_name)
+            if not destination.suffix:
+                destination = destination.with_suffix(".xlsx")
+            try:
+                st.session_state.df.to_excel(destination, index=False)
+                st.session_state.last_export_message = f"Saved reviewed copy to {destination.resolve()}"
+                st.sidebar.success(st.session_state.last_export_message)
+            except Exception as exc:
+                st.sidebar.error(f"Failed to export: {exc}")
+    if st.session_state.get("last_export_message"):
+        st.sidebar.caption(st.session_state.last_export_message)
 
     if st.session_state.total_reviewed:
         st.sidebar.warning("Existing review marks detected.")
@@ -353,12 +390,12 @@ def main() -> None:
         trigger_rerun()
 
     with st.expander("Topic options", expanded=False):
-        existing_topics = [""] + sorted(st.session_state.topic_history)
-        selected_topic = st.selectbox("Choose existing topic", existing_topics, key="topic_select")
-        typed_topic = st.text_input("Or enter a topic", key="topic_input")
+        existing_topics = [''] + sorted(st.session_state.topic_history)
+        st.selectbox("Choose existing topic", existing_topics, key="topic_select")
+        st.text_input("Or enter a topic", key="topic_input")
 
     if columns[1].button("Bullet"):
-        topic_choice = (st.session_state.topic_input or "").strip() or (st.session_state.topic_select or "").strip()
+        topic_choice = (st.session_state.topic_input or '').strip() or (st.session_state.topic_select or '').strip()
         if not topic_choice:
             st.warning("Provide a topic before marking as bullet.")
         else:
@@ -373,7 +410,10 @@ def main() -> None:
             st.info("Nothing to undo yet.")
 
 
+
 if __name__ == "__main__":
     main()
+
+
 
 
