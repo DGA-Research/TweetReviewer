@@ -1,161 +1,352 @@
-import pandas as pd
+import os
+import re
 from datetime import datetime
+
+import pandas as pd
+import streamlit as st
 from docx import Document
-from docx.shared import Pt
-from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.style import WD_STYLE_TYPE
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+from docx.shared import Pt
 
-# ---------- USER SETTINGS ----------
-INPUT_XLSX   = "Tweets to put in bullet format.xlsx"   # your Excel file
-SHEET_NAME   = 0                                       # or a sheet name string
-OUTPUT_DOCX  = "Issue Clipbook.docx"                   # output Word doc
-HANDLE       = "@RandyFeenstra"                        # your constant handle
-TEXT_COL     = "Text"
-DATE_COL     = "Date"
-URL_COL      = "URL"
-FLAG_COL     = "Reviewed Bulleted"                     # Boolean column
-# -----------------------------------
+WORD_FILENAME = "Issue Clipbook.docx"
+SAVE_INTERVAL = 20
 
-def to_mmddyy(d):
-    """Format to M/D/YY from Excel or string date."""
-    if pd.isna(d):
-        return ""
-    if isinstance(d, datetime):
-        return f"{d.month}/{d.day}/{str(d.year)[2:]}"
-    # try common string formats
-    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y"):
-        try:
-            dt = datetime.strptime(str(d), fmt)
-            return f"{dt.month}/{dt.day}/{str(dt.year)[2:]}"
-        except ValueError:
-            continue
-    # fallback: just return original
-    return str(d)
 
-def ensure_url_scheme(url: str) -> str:
-    if not url:
-        return ""
-    u = url.strip()
-    if not u:
-        return ""
-    if not (u.startswith("http://") or u.startswith("https://")):
-        u = "https://" + u
-    return u
+def list_excel_files() -> list[str]:
+    return sorted([name for name in os.listdir(".") if name.lower().endswith(".xlsx")])
 
-def add_hyperlink(paragraph, text, url):
-    """
-    Add a blue, underlined hyperlink run (displaying `text`) pointing to `url`.
-    Falls back to plain text if url is empty.
-    """
-    url = ensure_url_scheme(url)
-    if not url:
-        # fallback: plain text (no link)
-        r = paragraph.add_run(text)
-        r.font.name = "Arial"
-        r.font.size = Pt(10)
+
+def prepare_document(doc: Document) -> Document:
+    normal_style = doc.styles["Normal"]
+    normal_style.font.name = "Arial"
+    normal_style.font.size = Pt(10)
+    try:
+        heading = doc.styles["Heading 2"]
+    except KeyError:
+        heading = doc.styles.add_style("Heading 2", WD_STYLE_TYPE.PARAGRAPH)
+    heading.font.name = "Arial"
+    heading.font.size = Pt(12)
+    heading.font.bold = True
+    return doc
+
+
+def load_dataframe(file_path: str) -> tuple[pd.DataFrame, int]:
+    df = pd.read_excel(file_path)
+    if "URL" not in df.columns:
+        raise ValueError("Expected a 'URL' column in the workbook")
+
+    original = len(df)
+    df = df[df["URL"].fillna("").str.strip() != ""].reset_index(drop=True)
+    removed = original - len(df)
+
+    for column in ("Reviewed Passed", "Reviewed Bulleted"):
+        if column not in df.columns:
+            df[column] = False
+        df[column] = df[column].fillna(False).astype(bool)
+
+    return df, removed
+
+
+def initialize_state(file_path: str) -> None:
+    df, removed = load_dataframe(file_path)
+    st.session_state.df = df
+    st.session_state.excel_path = file_path
+    st.session_state.removed_rows = removed
+    if removed:
+        df.to_excel(file_path, index=False)
+
+    if os.path.exists(WORD_FILENAME):
+        doc = Document(WORD_FILENAME)
+    else:
+        doc = Document()
+    st.session_state.doc = prepare_document(doc)
+
+    st.session_state.content_by_topic: dict[str, list[dict[str, str]]] = {}
+    st.session_state.topic_history: list[str] = []
+    st.session_state.history_stack: list[tuple[int, str, str | None]] = []
+    st.session_state.current_index = 0
+    st.session_state.actions_since_save = 0
+    st.session_state.last_save_message = None
+    update_counts()
+    advance_to_next_unreviewed()
+
+
+def update_counts() -> None:
+    df = st.session_state.df
+    st.session_state.pass_count = int(df["Reviewed Passed"].sum())
+    st.session_state.bullet_count = int(df["Reviewed Bulleted"].sum())
+    st.session_state.total_reviewed = st.session_state.pass_count + st.session_state.bullet_count
+
+
+def advance_to_next_unreviewed() -> None:
+    df = st.session_state.df
+    idx = st.session_state.current_index
+    while idx < len(df) and (df.at[idx, "Reviewed Passed"] or df.at[idx, "Reviewed Bulleted"]):
+        idx += 1
+    st.session_state.current_index = idx
+
+
+def save_progress(force: bool = False) -> None:
+    if not force and st.session_state.actions_since_save < SAVE_INTERVAL:
         return
+    st.session_state.df.to_excel(st.session_state.excel_path, index=False)
+    st.session_state.doc.save(WORD_FILENAME)
+    st.session_state.actions_since_save = 0
+    st.session_state.last_save_message = f"Progress saved at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+
+
+def increment_action_counter() -> None:
+    st.session_state.actions_since_save += 1
+    save_progress()
+
+
+def normalize_spaces(text: str) -> str:
+    text = re.sub(r"([.?!]) {2,}", r"\\1 ", text)
+    text = re.sub(r" {2,}", " ", text)
+    return text.strip()
+
+
+def add_hyperlink_date_only(paragraph, prefix: str, date_part: str, suffix: str, url: str) -> None:
+    run_prefix = paragraph.add_run(prefix)
+    run_prefix.font.name = "Arial"
+    run_prefix.font.size = Pt(10)
 
     part = paragraph.part
-    r_id = part.relate_to(
+    rel_id = part.relate_to(
         url,
         "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink",
         is_external=True,
     )
 
     hyperlink = OxmlElement("w:hyperlink")
-    hyperlink.set(qn("r:id"), r_id)
+    hyperlink.set(qn("r:id"), rel_id)
 
-    # Create the run
     new_run = OxmlElement("w:r")
+    run_props = OxmlElement("w:rPr")
 
-    # Run properties
-    rPr = OxmlElement("w:rPr")
+    run_style = OxmlElement("w:rStyle")
+    run_style.set(qn("w:val"), "Hyperlink")
+    run_props.append(run_style)
 
-    # Set font color to blue
     color = OxmlElement("w:color")
-    color.set(qn("w:val"), "0000FF")  # hex RGB
-    rPr.append(color)
+    color.set(qn("w:val"), "0000FF")
+    run_props.append(color)
 
-    # Set underline
     underline = OxmlElement("w:u")
     underline.set(qn("w:val"), "single")
-    rPr.append(underline)
+    run_props.append(underline)
 
-    new_run.append(rPr)
-
-    # Add the text
-    w_t = OxmlElement("w:t")
-    w_t.text = text
-    new_run.append(w_t)
+    new_run.append(run_props)
+    text_element = OxmlElement("w:t")
+    text_element.text = date_part
+    new_run.append(text_element)
 
     hyperlink.append(new_run)
     paragraph._p.append(hyperlink)
 
+    run_suffix = paragraph.add_run(suffix)
+    run_suffix.font.name = "Arial"
+    run_suffix.font.size = Pt(10)
 
-def main():
-    # Read and filter data
-    df = pd.read_excel(INPUT_XLSX, sheet_name=SHEET_NAME)
-    if FLAG_COL not in df.columns:
-        raise ValueError(f"Missing column: {FLAG_COL}")
-    required = [TEXT_COL, DATE_COL, URL_COL]
-    missing = [c for c in required if c not in df.columns]
-    if missing:
-        raise ValueError(f"Missing columns: {missing}")
 
-    filtered = df[df[FLAG_COL] == True].copy()
+def rebuild_document() -> None:
+    doc = st.session_state.doc
+    content = st.session_state.content_by_topic
 
-    # Create document
-    doc = Document()
+    for paragraph in list(doc.paragraphs):
+        element = paragraph._element
+        parent = element.getparent()
+        if parent is not None:
+            parent.remove(element)
 
-    # Base font (Normal style)
-    style = doc.styles["Normal"]
-    style.font.name = "Arial"
-    style.font.size = Pt(10)
+    for topic in sorted(content.keys()):
+        doc.add_paragraph(topic, style="Heading 2")
+        for entry in content[topic]:
+            para = doc.add_paragraph()
+            run = para.add_run(entry["quoted_text"] + " ")
+            run.font.name = "Arial"
+            run.font.size = Pt(10)
+            add_hyperlink_date_only(para, "[X, @RandyFeenstra, ", entry["date_str"], "]", entry["url"])
 
-    for _, row in filtered.iterrows():
-        text = str(row[TEXT_COL]).replace('"', "'").replace("\n", " ").strip()
-        date_str = to_mmddyy(row[DATE_COL])
-        url = str(row[URL_COL])
+            doc.add_paragraph()
+            centered = doc.add_paragraph()
+            centered.alignment = 1
+            add_hyperlink_date_only(centered, "[X, @RandyFeenstra, ", entry["date_str"], "]", entry["url"])
+            doc.add_paragraph()
 
-        # Line 1: "Quoted text" [X, {Handle}, {Date (hyperlinked)}]
-        p1 = doc.add_paragraph()
-        run1 = p1.add_run(f"\"{text}\" ")
-        run1.font.name = "Arial"
-        run1.font.size = Pt(10)
 
-        pre = p1.add_run("[X, " + HANDLE + ", ")
-        pre.font.name = "Arial"
-        pre.font.size = Pt(10)
+def format_text_for_bullet(row: pd.Series, topic: str) -> None:
+    text = str(row.get("Text", ""))
+    url = str(row.get("URL", ""))
+    date_value = row.get("Date Correct Format")
+    if pd.isna(date_value):
+        date_value = row.get("Date")
+    date = pd.to_datetime(date_value)
+    date_str = f"{date.month}/{date.day}/{str(date.year)[2:]}"
 
-        add_hyperlink(p1, date_str, url)   # <-- Date is the hyperlink
+    text = text.replace('"', "'").replace("\n", "\u00A0")
+    text = normalize_spaces(text)
+    quoted = f'"{text}"'
 
-        post = p1.add_run("]")
-        post.font.name = "Arial"
-        post.font.size = Pt(10)
+    entries = st.session_state.content_by_topic.setdefault(topic, [])
+    entries.append({"quoted_text": quoted, "url": url, "date_str": date_str})
+    rebuild_document()
 
-        # Blank line for spacing
-        doc.add_paragraph("")
 
-        # Line 2: centered [X, {Handle}, {Date (hyperlinked)}]
-        p2 = doc.add_paragraph()
-        p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
+def handle_pass() -> None:
+    idx = st.session_state.current_index
+    st.session_state.df.at[idx, "Reviewed Passed"] = True
+    st.session_state.history_stack.append((idx, "pass", None))
+    st.session_state.current_index += 1
+    update_counts()
+    increment_action_counter()
+    advance_to_next_unreviewed()
 
-        pre2 = p2.add_run("[X, " + HANDLE + ", ")
-        pre2.font.name = "Arial"
-        pre2.font.size = Pt(10)
 
-        add_hyperlink(p2, date_str, url)   # <-- Date is the hyperlink
+def handle_bullet(topic: str) -> None:
+    idx = st.session_state.current_index
+    topic_upper = topic.upper()
+    st.session_state.df.at[idx, "Reviewed Bulleted"] = True
+    st.session_state.history_stack.append((idx, "bullet", topic_upper))
+    format_text_for_bullet(st.session_state.df.iloc[idx], topic_upper)
+    if topic_upper not in st.session_state.topic_history:
+        st.session_state.topic_history.append(topic_upper)
+    st.session_state.current_index += 1
+    update_counts()
+    increment_action_counter()
+    advance_to_next_unreviewed()
 
-        post2 = p2.add_run("]")
-        post2.font.name = "Arial"
-        post2.font.size = Pt(10)
 
-        # Final blank line for spacing
-        doc.add_paragraph("")
+def handle_back() -> bool:
+    if not st.session_state.history_stack:
+        return False
+    idx, action, topic = st.session_state.history_stack.pop()
+    if action == "pass":
+        st.session_state.df.at[idx, "Reviewed Passed"] = False
+    else:
+        st.session_state.df.at[idx, "Reviewed Bulleted"] = False
+        if topic:
+            entries = st.session_state.content_by_topic.get(topic, [])
+            if entries:
+                entries.pop()
+                if not entries:
+                    st.session_state.content_by_topic.pop(topic, None)
+            rebuild_document()
+    st.session_state.current_index = idx
+    st.session_state.actions_since_save = max(st.session_state.actions_since_save - 1, 0)
+    update_counts()
+    advance_to_next_unreviewed()
+    return True
 
-    doc.save(OUTPUT_DOCX)
-    print(f"Saved {len(filtered)} bullets to {OUTPUT_DOCX}")
+
+def reset_for_rereview() -> None:
+    st.session_state.df["Reviewed Passed"] = False
+    st.session_state.df["Reviewed Bulleted"] = False
+    st.session_state.history_stack = []
+    st.session_state.content_by_topic = {}
+    st.session_state.topic_history = []
+    st.session_state.current_index = 0
+    st.session_state.actions_since_save = 0
+    st.session_state.doc = prepare_document(Document())
+    update_counts()
+    advance_to_next_unreviewed()
+    st.session_state.df.to_excel(st.session_state.excel_path, index=False)
+    save_progress(force=True)
+
+
+def main() -> None:
+    st.set_page_config(page_title="Tweet Reviewer", layout="wide")
+    st.title("Tweet Reviewer")
+
+    excel_files = list_excel_files()
+    if not excel_files:
+        st.error("No Excel workbooks found in this directory.")
+        return
+
+    default_index = 0
+    if "excel_path" in st.session_state and st.session_state.excel_path in excel_files:
+        default_index = excel_files.index(st.session_state.excel_path)
+
+    selected_file = st.sidebar.selectbox("Workbook", excel_files, index=default_index)
+
+    if "excel_path" not in st.session_state or selected_file != st.session_state.excel_path:
+        initialize_state(selected_file)
+
+    st.sidebar.metric("Passed", st.session_state.pass_count)
+    st.sidebar.metric("Bulleted", st.session_state.bullet_count)
+    st.sidebar.metric("Total Reviewed", st.session_state.total_reviewed)
+
+    if st.session_state.removed_rows:
+        st.sidebar.info(f"Removed {st.session_state.removed_rows} rows without a URL")
+
+    if st.session_state.last_save_message:
+        st.sidebar.caption(st.session_state.last_save_message)
+
+    if st.sidebar.button("Save now"):
+        save_progress(force=True)
+        st.experimental_rerun()
+
+    if st.session_state.total_reviewed:
+        st.sidebar.warning("Existing review marks detected.")
+        if st.sidebar.button("Reset for re-review"):
+            reset_for_rereview()
+            st.experimental_rerun()
+
+    advance_to_next_unreviewed()
+
+    df = st.session_state.df
+    idx = st.session_state.current_index
+
+    if idx >= len(df):
+        st.success("All rows reviewed.")
+        return
+
+    row = df.iloc[idx]
+    st.subheader(f"Row {idx + 1} of {len(df)}")
+    st.write(row.get("Text", ""))
+
+    flag_value = row.get("bad_words_found", "")
+    if pd.notna(flag_value) and str(flag_value).strip():
+        st.warning(f"Flags: {flag_value}")
+
+    quote_flag = row.get("is_quote_tweet") or row.get("Quote Tweet")
+    if pd.notna(quote_flag) and quote_flag:
+        st.info("QUOTE TWEET")
+
+    url = row.get("URL", "")
+    if isinstance(url, str) and url.strip():
+        st.markdown(f"[Open Link]({url})")
+
+    st.caption(f"Progress saves every {SAVE_INTERVAL} actions.")
+
+    columns = st.columns(3)
+    if columns[0].button("Pass"):
+        handle_pass()
+        st.experimental_rerun()
+
+    with st.expander("Topic options", expanded=False):
+        existing_topics = [""] + sorted(st.session_state.topic_history)
+        selected_topic = st.selectbox("Choose existing topic", existing_topics, key="topic_select")
+        typed_topic = st.text_input("Or enter a topic", key="topic_input")
+
+    if columns[1].button("Bullet"):
+        topic_choice = (st.session_state.topic_input or "").strip() or (st.session_state.topic_select or "").strip()
+        if not topic_choice:
+            st.warning("Provide a topic before marking as bullet.")
+        else:
+            handle_bullet(topic_choice)
+            st.session_state.topic_input = ""
+            st.session_state.topic_select = ""
+            st.experimental_rerun()
+
+    if columns[2].button("Undo last"):
+        if handle_back():
+            st.experimental_rerun()
+        else:
+            st.info("Nothing to undo yet.")
+
 
 if __name__ == "__main__":
     main()
