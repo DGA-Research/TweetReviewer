@@ -29,11 +29,14 @@ def trigger_rerun() -> None:
 
 
 def extract_handle_from_url(url: str) -> str:
-    if not isinstance(url, str) or 'twitter.com/' not in url:
+    if not isinstance(url, str):
         return 'unknown'
-    handle_part = url.split('twitter.com/', 1)[1]
-    handle = handle_part.split('/', 1)[0]
-    handle = handle.strip('@').strip()
+
+    match = re.search(r"https?://(?:www\.)?(?:twitter|x)\.com/([^/]+)", url, re.IGNORECASE)
+    if not match:
+        return 'unknown'
+
+    handle = match.group(1).strip('@').strip()
     return handle or 'unknown'
 
 
