@@ -14,6 +14,16 @@ WORD_FILENAME = "Issue Clipbook.docx"
 SAVE_INTERVAL = 20
 
 
+def trigger_rerun() -> None:
+    rerun_fn = getattr(st, 'experimental_rerun', None) or getattr(st, 'rerun', None)
+    if rerun_fn is None:
+        raise RuntimeError('Streamlit rerun function is unavailable in this environment.')
+    rerun_fn()
+
+
+
+
+
 def list_excel_files() -> list[str]:
     return sorted([name for name in os.listdir(".") if name.lower().endswith(".xlsx")])
 
@@ -286,13 +296,13 @@ def main() -> None:
 
     if st.sidebar.button("Save now"):
         save_progress(force=True)
-        st.experimental_rerun()
+        trigger_rerun()
 
     if st.session_state.total_reviewed:
         st.sidebar.warning("Existing review marks detected.")
         if st.sidebar.button("Reset for re-review"):
             reset_for_rereview()
-            st.experimental_rerun()
+            trigger_rerun()
 
     advance_to_next_unreviewed()
 
@@ -324,7 +334,7 @@ def main() -> None:
     columns = st.columns(3)
     if columns[0].button("Pass"):
         handle_pass()
-        st.experimental_rerun()
+        trigger_rerun()
 
     with st.expander("Topic options", expanded=False):
         existing_topics = [""] + sorted(st.session_state.topic_history)
@@ -339,14 +349,16 @@ def main() -> None:
             handle_bullet(topic_choice)
             st.session_state.topic_input = ""
             st.session_state.topic_select = ""
-            st.experimental_rerun()
+            trigger_rerun()
 
     if columns[2].button("Undo last"):
         if handle_back():
-            st.experimental_rerun()
+            trigger_rerun()
         else:
             st.info("Nothing to undo yet.")
 
 
 if __name__ == "__main__":
     main()
+
+
