@@ -2,6 +2,7 @@ import os
 import re
 from datetime import datetime
 from pathlib import Path
+import subprocess
 
 import pandas as pd
 import streamlit as st
@@ -24,6 +25,71 @@ def trigger_rerun() -> None:
 
 
 
+
+
+
+def extract_handle_from_url(url: str) -> str:
+    if not isinstance(url, str) or 'twitter.com/' not in url:
+        return 'unknown'
+    handle_part = url.split('twitter.com/', 1)[1]
+    handle = handle_part.split('/', 1)[0]
+    handle = handle.strip('@').strip()
+    return handle or 'unknown'
+
+
+def derive_export_metadata(df: pd.DataFrame) -> tuple[str, str, str]:
+    handle = 'unknown'
+    url_series = df.get('URL')
+    if url_series is not None and not url_series.dropna().empty:
+        handle = extract_handle_from_url(url_series.dropna().iloc[0])
+
+    date_series = df.get('Date Correct Format')
+    if date_series is None or date_series.dropna().empty:
+        date_series = df.get('Date')
+    first_date = last_date = 'unknown'
+    if date_series is not None and not date_series.dropna().empty:
+        try:
+            dates = pd.to_datetime(date_series.dropna())
+            first_date = dates.min().strftime('%Y%m%d')
+            last_date = dates.max().strftime('%Y%m%d')
+        except Exception:
+            pass
+
+    return handle, first_date, last_date
+
+
+def build_export_filename(df: pd.DataFrame) -> str:
+    handle, first_date, last_date = derive_export_metadata(df)
+    today = datetime.now().strftime('%m%d%Y')
+    parts = ['REVIEWED', handle, first_date, last_date, today]
+    safe_parts = [re.sub(r'[^A-Za-z0-9_-]+', '_', part) if part else 'unknown' for part in parts]
+    return '_'.join(safe_parts) + '.xlsx'
+
+
+def save_and_git_commit(destination: Path, df: pd.DataFrame) -> tuple[bool, str]:
+    try:
+        df.to_excel(destination, index=False)
+    except Exception as exc:
+        return False, f"Failed to save workbook: {exc}"
+
+    repo_root = destination.parent
+    commit_message = f"Add reviewed tweets {destination.name}"
+    commands = [
+        ['git', 'add', str(destination.relative_to(repo_root))],
+        ['git', 'commit', '-m', commit_message],
+        ['git', 'push'],
+    ]
+
+    for cmd in commands:
+        try:
+            subprocess.run(cmd, cwd=repo_root, capture_output=True, text=True, check=True)
+        except subprocess.CalledProcessError as err:
+            details = err.stderr.strip() or err.stdout.strip() or 'Unknown error'
+            if len(cmd) > 1 and cmd[1] == 'commit' and 'nothing to commit' in details.lower():
+                continue
+            return False, f"Git command failed ({' '.join(cmd)}): {details}"
+
+    return True, f"Saved and pushed {destination.name}"
 
 def list_excel_files() -> list[str]:
     return sorted([name for name in os.listdir(".") if name.lower().endswith(".xlsx")])
@@ -86,7 +152,7 @@ def initialize_state(file_path: str, source_label: str | None = None) -> None:
     st.session_state.actions_since_save = 0
     st.session_state.last_save_message = None
     st.session_state.last_export_message = None
-    export_default = f"reviewed_{Path(file_path).stem}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    export_default = build_export_filename(df)
     st.session_state.export_name = export_default
     update_counts()
     advance_to_next_unreviewed()
@@ -270,6 +336,8 @@ def reset_for_rereview() -> None:
     st.session_state.actions_since_save = 0
     st.session_state.clear_topic_inputs = False
     st.session_state.doc = prepare_document(Document())
+    st.session_state.last_export_message = None
+    st.session_state.export_name = build_export_filename(st.session_state.df)
     update_counts()
     advance_to_next_unreviewed()
     st.session_state.df.to_excel(st.session_state.excel_path, index=False)
@@ -326,17 +394,20 @@ def main() -> None:
         trigger_rerun()
 
     if 'export_name' in st.session_state:
-        st.sidebar.text_input("Export reviewed copy as", key="export_name")
-        if st.sidebar.button("Export reviewed copy"):
+        st.sidebar.text_input("Git filename", value=st.session_state.export_name, key="export_name")
+        if st.sidebar.button("Save to Git"):
             destination = Path(st.session_state.export_name)
-            if not destination.suffix:
-                destination = destination.with_suffix(".xlsx")
-            try:
-                st.session_state.df.to_excel(destination, index=False)
-                st.session_state.last_export_message = f"Saved reviewed copy to {destination.resolve()}"
-                st.sidebar.success(st.session_state.last_export_message)
-            except Exception as exc:
-                st.sidebar.error(f"Failed to export: {exc}")
+            if not destination.is_absolute():
+                destination = Path.cwd() / destination
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            success, message = save_and_git_commit(destination, st.session_state.df)
+            if success:
+                st.session_state.last_export_message = message
+                st.sidebar.success(message)
+                st.session_state.export_name = build_export_filename(st.session_state.df)
+            else:
+                st.session_state.last_export_message = message
+                st.sidebar.error(message)
     if st.session_state.get("last_export_message"):
         st.sidebar.caption(st.session_state.last_export_message)
 
