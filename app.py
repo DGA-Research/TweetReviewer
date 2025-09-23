@@ -73,6 +73,10 @@ def initialize_state(file_path: str) -> None:
         doc = Document()
     st.session_state.doc = prepare_document(doc)
 
+    st.session_state.topic_input = ''
+    st.session_state.topic_select = ''
+    st.session_state.clear_topic_inputs = False
+
     st.session_state.content_by_topic: dict[str, list[dict[str, str]]] = {}
     st.session_state.topic_history: list[str] = []
     st.session_state.history_stack: list[tuple[int, str, str | None]] = []
@@ -259,6 +263,7 @@ def reset_for_rereview() -> None:
     st.session_state.topic_history = []
     st.session_state.current_index = 0
     st.session_state.actions_since_save = 0
+    st.session_state.clear_topic_inputs = False
     st.session_state.doc = prepare_document(Document())
     update_counts()
     advance_to_next_unreviewed()
@@ -331,6 +336,17 @@ def main() -> None:
 
     st.caption(f"Progress saves every {SAVE_INTERVAL} actions.")
 
+    if 'topic_input' not in st.session_state:
+        st.session_state.topic_input = ''
+    if 'topic_select' not in st.session_state:
+        st.session_state.topic_select = ''
+    if 'clear_topic_inputs' not in st.session_state:
+        st.session_state.clear_topic_inputs = False
+    if st.session_state.clear_topic_inputs:
+        st.session_state.topic_input = ''
+        st.session_state.topic_select = ''
+        st.session_state.clear_topic_inputs = False
+
     columns = st.columns(3)
     if columns[0].button("Pass"):
         handle_pass()
@@ -347,8 +363,7 @@ def main() -> None:
             st.warning("Provide a topic before marking as bullet.")
         else:
             handle_bullet(topic_choice)
-            st.session_state.topic_input = ""
-            st.session_state.topic_select = ""
+            st.session_state.clear_topic_inputs = True
             trigger_rerun()
 
     if columns[2].button("Undo last"):
