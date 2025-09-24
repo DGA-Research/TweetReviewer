@@ -117,6 +117,24 @@ def build_export_filename(df: pd.DataFrame) -> str:
     return '_'.join(safe_parts) + '.xlsx'
 
 
+
+def ensure_git_identity(repo_root: Path) -> tuple[bool, str]:
+    user_cfg = st.secrets.get('user', {}) if hasattr(st, 'secrets') else {}
+    name = user_cfg.get('name')
+    email = user_cfg.get('email')
+    if not name or not email:
+        return False, "Streamlit secrets missing user.name or user.email"
+
+    try:
+        subprocess.run(['git', 'config', '--local', 'user.name', name], cwd=repo_root, check=True, capture_output=True, text=True)
+        subprocess.run(['git', 'config', '--local', 'user.email', email], cwd=repo_root, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as err:
+        details = err.stderr.strip() or err.stdout.strip() or 'Unknown error'
+        return False, f"Failed to set git identity: {details}"
+
+    return True, ''
+
+
 def save_and_git_commit(destination: Path, df: pd.DataFrame) -> tuple[bool, str]:
     try:
         df.to_excel(destination, index=False)
@@ -124,6 +142,10 @@ def save_and_git_commit(destination: Path, df: pd.DataFrame) -> tuple[bool, str]
         return False, f"Failed to save workbook: {exc}"
 
     repo_root = destination.parent
+    ok, message = ensure_git_identity(repo_root)
+    if not ok:
+        return False, message
+
     commit_message = f"Add reviewed tweets {destination.name}"
     commands = [
         ['git', 'add', str(destination.relative_to(repo_root))],
