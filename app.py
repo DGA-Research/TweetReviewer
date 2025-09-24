@@ -581,10 +581,6 @@ def main() -> None:
     if st.session_state.last_save_message:
         st.sidebar.caption(st.session_state.last_save_message)
 
-    if st.sidebar.button("Save now"):
-        save_progress(force=True)
-        trigger_rerun()
-
     if 'df' in st.session_state:
         refresh_export_name()
         if st.session_state.get('reset_export_name'):
@@ -598,7 +594,22 @@ def main() -> None:
             st.session_state.export_name = st.session_state.initial_export_name
 
         if 'export_name' in st.session_state:
-            st.sidebar.text_input("Git filename", value=st.session_state.export_name, key="export_name")
+            st.sidebar.text_input("Output xlsx filename", value=st.session_state.export_name, key="export_name")
+
+            if st.sidebar.button("Save to Git"):
+                destination = Path(st.session_state.export_name)
+                if not destination.is_absolute():
+                    destination = Path.cwd() / destination
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                success, message = save_and_git_commit(destination, st.session_state.df)
+                if success:
+                    st.session_state.last_export_message = message
+                    st.sidebar.success(message)
+                    st.session_state.initial_export_name = build_export_filename(st.session_state.df)
+                    st.session_state.reset_export_name = True
+                else:
+                    st.session_state.last_export_message = message
+                    st.sidebar.error(message)
 
             local_filename = st.session_state.export_name or "reviewed.xlsx"
             download_buffer = BytesIO()
@@ -622,21 +633,6 @@ def main() -> None:
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 key="download_word_copy",
             )
-
-            if st.sidebar.button("Save to Git"):
-                destination = Path(st.session_state.export_name)
-                if not destination.is_absolute():
-                    destination = Path.cwd() / destination
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                success, message = save_and_git_commit(destination, st.session_state.df)
-                if success:
-                    st.session_state.last_export_message = message
-                    st.sidebar.success(message)
-                    st.session_state.initial_export_name = build_export_filename(st.session_state.df)
-                    st.session_state.reset_export_name = True
-                else:
-                    st.session_state.last_export_message = message
-                    st.sidebar.error(message)
     if st.session_state.get("last_export_message"):
         st.sidebar.caption(st.session_state.last_export_message)
 
