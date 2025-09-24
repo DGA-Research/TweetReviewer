@@ -142,8 +142,8 @@ def refresh_export_name() -> None:
     previous_auto = st.session_state.get('initial_export_name')
     new_name = build_export_filename(st.session_state.df)
     st.session_state.initial_export_name = new_name
-    if st.session_state.get('export_name') == previous_auto:
-        st.session_state.export_name = new_name
+    if 'export_name' not in st.session_state or st.session_state.get('export_name') == previous_auto:
+        st.session_state.pending_export_name = new_name
 
 
 
@@ -574,54 +574,58 @@ def main() -> None:
         save_progress(force=True)
         trigger_rerun()
 
-    if 'initial_export_name' not in st.session_state:
-        st.session_state.initial_export_name = build_export_filename(st.session_state.df)
-    if st.session_state.get('reset_export_name'):
-        st.session_state.export_name = st.session_state.initial_export_name
-        st.session_state.reset_export_name = False
-    elif 'export_name' not in st.session_state:
-        st.session_state.export_name = st.session_state.initial_export_name
+    if 'df' in st.session_state:
+        refresh_export_name()
+        if st.session_state.get('reset_export_name'):
+            st.session_state.export_name = st.session_state.initial_export_name
+            st.session_state.reset_export_name = False
 
-    if 'export_name' in st.session_state:
-        st.sidebar.text_input("Git filename", value=st.session_state.export_name, key="export_name")
+        pending_name = st.session_state.pop('pending_export_name', None)
+        if pending_name is not None:
+            st.session_state.export_name = pending_name
+        elif 'export_name' not in st.session_state:
+            st.session_state.export_name = st.session_state.initial_export_name
 
-        local_filename = st.session_state.export_name or "reviewed.xlsx"
-        download_buffer = BytesIO()
-        st.session_state.df.to_excel(download_buffer, index=False)
-        download_buffer.seek(0)
-        st.sidebar.download_button(
-            "Save locally",
-            data=download_buffer,
-            file_name=local_filename,
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="download_local_copy",
-        )
+        if 'export_name' in st.session_state:
+            st.sidebar.text_input("Git filename", value=st.session_state.export_name, key="export_name")
 
-        word_buffer = BytesIO()
-        st.session_state.doc.save(word_buffer)
-        word_buffer.seek(0)
-        st.sidebar.download_button(
-            "Save Word summary",
-            data=word_buffer,
-            file_name=WORD_FILENAME,
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            key="download_word_copy",
-        )
+            local_filename = st.session_state.export_name or "reviewed.xlsx"
+            download_buffer = BytesIO()
+            st.session_state.df.to_excel(download_buffer, index=False)
+            download_buffer.seek(0)
+            st.sidebar.download_button(
+                "Save locally",
+                data=download_buffer,
+                file_name=local_filename,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="download_local_copy",
+            )
 
-        if st.sidebar.button("Save to Git"):
-            destination = Path(st.session_state.export_name)
-            if not destination.is_absolute():
-                destination = Path.cwd() / destination
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            success, message = save_and_git_commit(destination, st.session_state.df)
-            if success:
-                st.session_state.last_export_message = message
-                st.sidebar.success(message)
-                st.session_state.initial_export_name = build_export_filename(st.session_state.df)
-                st.session_state.reset_export_name = True
-            else:
-                st.session_state.last_export_message = message
-                st.sidebar.error(message)
+            word_buffer = BytesIO()
+            st.session_state.doc.save(word_buffer)
+            word_buffer.seek(0)
+            st.sidebar.download_button(
+                "Save Word summary",
+                data=word_buffer,
+                file_name=WORD_FILENAME,
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                key="download_word_copy",
+            )
+
+            if st.sidebar.button("Save to Git"):
+                destination = Path(st.session_state.export_name)
+                if not destination.is_absolute():
+                    destination = Path.cwd() / destination
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                success, message = save_and_git_commit(destination, st.session_state.df)
+                if success:
+                    st.session_state.last_export_message = message
+                    st.sidebar.success(message)
+                    st.session_state.initial_export_name = build_export_filename(st.session_state.df)
+                    st.session_state.reset_export_name = True
+                else:
+                    st.session_state.last_export_message = message
+                    st.sidebar.error(message)
     if st.session_state.get("last_export_message"):
         st.sidebar.caption(st.session_state.last_export_message)
 
