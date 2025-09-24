@@ -47,7 +47,7 @@ def ensure_hotkeys_script() -> None:
                 }
                 const key = event.key.toLowerCase();
                 if (key === 'q' || key === 'w') {
-                    const label = key === 'q' ? 'Pass (Q)' : 'Bullet (W)';
+                    const label = key === 'q' ? 'Pass' : 'Bullet';
                     const buttons = Array.from(doc.querySelectorAll('button'));
                     const target = buttons.find(btn => {
                         const text = (btn.innerText || '').trim();
@@ -340,11 +340,13 @@ def save_progress(force: bool = False) -> None:
     export_name = st.session_state.get('export_name')
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     if export_name:
-        destination = Path(export_name)
-        if not destination.is_absolute():
-            destination = Path.cwd() / destination
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        success, message = save_and_git_commit(destination, st.session_state.df)
+        base_destination = Path(export_name)
+        auto_filename = f"{base_destination.stem}_autoPush{base_destination.suffix}" if base_destination.suffix else f"{base_destination.name}_autoPush"
+        auto_destination = base_destination.with_name(auto_filename)
+        if not auto_destination.is_absolute():
+            auto_destination = Path.cwd() / auto_destination
+        auto_destination.parent.mkdir(parents=True, exist_ok=True)
+        success, message = save_and_git_commit(auto_destination, st.session_state.df)
         st.session_state.last_export_message = message
         st.session_state.last_export_success = success
         save_note = 'Progress auto-pushed' if success else 'Auto push failed'
@@ -704,7 +706,7 @@ def main() -> None:
 
     columns = st.columns(3)
     ensure_hotkeys_script()
-    if columns[0].button("Pass (Q)", key="pass_button"):
+    if columns[0].button("Pass", key="pass_button"):
         handle_pass()
         trigger_rerun()
 
@@ -713,7 +715,7 @@ def main() -> None:
         st.selectbox("Choose existing topic", existing_topics, key="topic_select")
         st.text_input("Or enter a topic", key="topic_input")
 
-    if columns[1].button("Bullet (W)", key="bullet_button"):
+    if columns[1].button("Bullet", key="bullet_button"):
         topic_choice = (st.session_state.topic_input or '').strip() or (st.session_state.topic_select or '').strip()
         if not topic_choice:
             st.warning("Provide a topic before marking as bullet.")
