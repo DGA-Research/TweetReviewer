@@ -90,7 +90,7 @@ def extract_handle_from_url(url: str) -> str:
     return handle or 'unknown'
 
 
-def derive_export_metadata(df: pd.DataFrame) -> tuple[str, str, str]:
+def derive_export_metadata(df: pd.DataFrame) -> tuple[str, str, str, str]:
     handle = 'unknown'
     url_series = df.get('URL')
     if url_series is not None and not url_series.dropna().empty:
@@ -99,12 +99,15 @@ def derive_export_metadata(df: pd.DataFrame) -> tuple[str, str, str]:
     date_series = df.get('Date Correct Format')
     fallback_date_series = df.get('Date')
     first_date = 'unknown'
+    last_tweet_date = 'unknown'
     if date_series is None or date_series.dropna().empty:
         date_series = fallback_date_series
     if date_series is not None and not date_series.dropna().empty:
         try:
             dates = pd.to_datetime(date_series.dropna())
-            first_date = dates.min().strftime('%Y%m%d')
+            if not dates.empty:
+                first_date = dates.min().strftime('%Y%m%d')
+                last_tweet_date = dates.max().strftime('%Y%m%d')
         except Exception:
             pass
 
@@ -119,17 +122,25 @@ def derive_export_metadata(df: pd.DataFrame) -> tuple[str, str, str]:
             if candidate_dates is not None and not candidate_dates.dropna().empty:
                 try:
                     reviewed_dates = pd.to_datetime(candidate_dates.dropna())
-                    last_reviewed_date = reviewed_dates.max().strftime('%Y%m%d')
+                    if not reviewed_dates.empty:
+                        last_reviewed_date = reviewed_dates.max().strftime('%Y%m%d')
                 except Exception:
                     pass
 
-    return handle, first_date, last_reviewed_date
+    return handle, first_date, last_reviewed_date, last_tweet_date
 
 
 def build_export_filename(df: pd.DataFrame) -> str:
-    handle, first_date, last_date = derive_export_metadata(df)
-    today = datetime.now().strftime('%Y%m%d')
-    parts = ['REVIEWED', handle, first_date, last_date, today]
+    handle, first_date, last_reviewed_date, last_tweet_date = derive_export_metadata(df)
+    reviewed_series = df.get('Reviewed')
+    any_reviewed = False
+    if reviewed_series is not None:
+        any_reviewed = reviewed_series.fillna(False).astype(bool).any()
+    if any_reviewed:
+        today = datetime.now().strftime('%Y%m%d')
+        parts = ['REVIEWED', handle, first_date, last_reviewed_date, today]
+    else:
+        parts = ['UNREVIEWED', handle, first_date, last_tweet_date]
     safe_parts = [re.sub(r'[^A-Za-z0-9_-]+', '_', part) if part else 'unknown' for part in parts]
     return '_'.join(safe_parts) + '.xlsx'
 
