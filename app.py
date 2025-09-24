@@ -1,11 +1,12 @@
 import os
 import re
+import base64
 from datetime import datetime
 from pathlib import Path
-import subprocess
 
 import pandas as pd
 import streamlit as st
+import requests
 import streamlit.components.v1 as components
 from docx import Document
 from docx.enum.style import WD_STYLE_TYPE
@@ -118,51 +119,77 @@ def build_export_filename(df: pd.DataFrame) -> str:
 
 
 
-def ensure_git_identity(repo_root: Path) -> tuple[bool, str]:
-    user_cfg = st.secrets.get('user', {}) if hasattr(st, 'secrets') else {}
-    name = user_cfg.get('name')
-    email = user_cfg.get('email')
-    if not name or not email:
-        return False, "Streamlit secrets missing user.name or user.email"
+def get_github_config() -> tuple[bool, dict | str]:
+    if not hasattr(st, 'secrets'):
+        return False, 'Streamlit secrets unavailable; add GitHub credentials to st.secrets'
 
-    try:
-        subprocess.run(['git', 'config', '--local', 'user.name', name], cwd=repo_root, check=True, capture_output=True, text=True)
-        subprocess.run(['git', 'config', '--local', 'user.email', email], cwd=repo_root, check=True, capture_output=True, text=True)
-    except subprocess.CalledProcessError as err:
-        details = err.stderr.strip() or err.stdout.strip() or 'Unknown error'
-        return False, f"Failed to set git identity: {details}"
+    cfg = st.secrets.get('github', {})
+    token = cfg.get('token')
+    owner = cfg.get('owner')
+    repo = cfg.get('repo')
+    branch = cfg.get('branch', 'main')
+    target_dir = (cfg.get('target_dir') or '').strip('/')
 
-    return True, ''
+    if not token or not owner or not repo:
+        return False, 'Streamlit secrets missing github.token, github.owner, or github.repo'
+
+    return True, {
+        'token': token,
+        'owner': owner,
+        'repo': repo,
+        'branch': branch,
+        'target_dir': target_dir,
+    }
 
 
 def save_and_git_commit(destination: Path, df: pd.DataFrame) -> tuple[bool, str]:
     try:
+        destination.parent.mkdir(parents=True, exist_ok=True)
         df.to_excel(destination, index=False)
     except Exception as exc:
         return False, f"Failed to save workbook: {exc}"
 
-    repo_root = destination.parent
-    ok, message = ensure_git_identity(repo_root)
+    try:
+        file_bytes = destination.read_bytes()
+    except Exception as exc:
+        return False, f"Failed to read saved workbook: {exc}"
+
+    ok, cfg_or_message = get_github_config()
     if not ok:
-        return False, message
+        return False, cfg_or_message
 
-    commit_message = f"Add reviewed tweets {destination.name}"
-    commands = [
-        ['git', 'add', str(destination.relative_to(repo_root))],
-        ['git', 'commit', '-m', commit_message],
-        ['git', 'push'],
-    ]
+    cfg = cfg_or_message
+    encoded_content = base64.b64encode(file_bytes).decode('utf-8')
 
-    for cmd in commands:
-        try:
-            subprocess.run(cmd, cwd=repo_root, capture_output=True, text=True, check=True)
-        except subprocess.CalledProcessError as err:
-            details = err.stderr.strip() or err.stdout.strip() or 'Unknown error'
-            if len(cmd) > 1 and cmd[1] == 'commit' and 'nothing to commit' in details.lower():
-                continue
-            return False, f"Git command failed ({' '.join(cmd)}): {details}"
+    relative_path = destination.name if not cfg['target_dir'] else f"{cfg['target_dir']}/{destination.name}"
+    url = f"https://api.github.com/repos/{cfg['owner']}/{cfg['repo']}/contents/{relative_path}"
+    headers = {
+        'Authorization': f"Bearer {cfg['token']}",
+        'Accept': 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+    }
 
-    return True, f"Saved and pushed {destination.name}"
+    params = {'ref': cfg['branch']}
+    existing_sha = None
+    get_response = requests.get(url, headers=headers, params=params)
+    if get_response.status_code == 200:
+        existing_sha = get_response.json().get('sha')
+    elif get_response.status_code not in (200, 404):
+        return False, f"GitHub API error ({get_response.status_code}): {get_response.text}"
+
+    payload = {
+        'message': f"Add reviewed tweets {destination.name}",
+        'content': encoded_content,
+        'branch': cfg['branch'],
+    }
+    if existing_sha:
+        payload['sha'] = existing_sha
+
+    put_response = requests.put(url, headers=headers, json=payload)
+    if put_response.status_code not in (200, 201):
+        return False, f"GitHub API error ({put_response.status_code}): {put_response.text}"
+
+    return True, f"Uploaded and committed {destination.name} to GitHub"
 
 def list_excel_files() -> list[str]:
     return sorted([name for name in os.listdir(".") if name.lower().endswith(".xlsx")])
@@ -570,6 +597,8 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
 
 
 
