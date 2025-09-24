@@ -3,6 +3,7 @@ import re
 import base64
 from datetime import datetime
 from pathlib import Path
+from io import BytesIO
 
 import pandas as pd
 import streamlit as st
@@ -506,6 +507,19 @@ def main() -> None:
 
     if 'export_name' in st.session_state:
         st.sidebar.text_input("Git filename", value=st.session_state.export_name, key="export_name")
+
+        local_filename = st.session_state.export_name or "reviewed.xlsx"
+        download_buffer = BytesIO()
+        st.session_state.df.to_excel(download_buffer, index=False)
+        download_buffer.seek(0)
+        st.sidebar.download_button(
+            "Save locally",
+            data=download_buffer,
+            file_name=local_filename,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="download_local_copy",
+        )
+
         if st.sidebar.button("Save to Git"):
             destination = Path(st.session_state.export_name)
             if not destination.is_absolute():
