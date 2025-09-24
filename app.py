@@ -303,6 +303,7 @@ def initialize_state(file_path: str, source_label: str | None = None) -> None:
     st.session_state.actions_since_save = 0
     st.session_state.last_save_message = None
     st.session_state.last_export_message = None
+    st.session_state.last_export_success = None
     st.session_state.initial_export_name = build_export_filename(df)
     st.session_state.reset_export_name = False
     st.session_state.export_name = st.session_state.initial_export_name
@@ -335,8 +336,24 @@ def save_progress(force: bool = False) -> None:
         return
     st.session_state.df.to_excel(st.session_state.excel_path, index=False)
     st.session_state.doc.save(WORD_FILENAME)
+
+    export_name = st.session_state.get('export_name')
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    if export_name:
+        destination = Path(export_name)
+        if not destination.is_absolute():
+            destination = Path.cwd() / destination
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        success, message = save_and_git_commit(destination, st.session_state.df)
+        st.session_state.last_export_message = message
+        st.session_state.last_export_success = success
+        save_note = 'Progress auto-pushed' if success else 'Auto push failed'
+    else:
+        st.session_state.last_export_success = None
+        st.session_state.last_export_message = None
+        save_note = 'Progress auto-saved'
     st.session_state.actions_since_save = 0
-    st.session_state.last_save_message = f"Progress saved at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    st.session_state.last_save_message = f"{save_note} at {timestamp}"
 
 
 def increment_action_counter() -> None:
@@ -526,6 +543,7 @@ def reset_for_rereview() -> None:
     st.session_state.clear_topic_inputs = False
     st.session_state.doc = prepare_document(Document())
     st.session_state.last_export_message = None
+    st.session_state.last_export_success = None
     st.session_state.initial_export_name = build_export_filename(st.session_state.df)
     st.session_state.reset_export_name = True
     st.session_state.pop('export_name', None)
@@ -602,14 +620,11 @@ def main() -> None:
                     destination = Path.cwd() / destination
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 success, message = save_and_git_commit(destination, st.session_state.df)
+                st.session_state.last_export_message = message
+                st.session_state.last_export_success = success
                 if success:
-                    st.session_state.last_export_message = message
-                    st.sidebar.success(message)
                     st.session_state.initial_export_name = build_export_filename(st.session_state.df)
                     st.session_state.reset_export_name = True
-                else:
-                    st.session_state.last_export_message = message
-                    st.sidebar.error(message)
 
             local_filename = st.session_state.export_name or "reviewed.xlsx"
             download_buffer = BytesIO()
@@ -634,7 +649,14 @@ def main() -> None:
                 key="download_word_copy",
             )
     if st.session_state.get("last_export_message"):
-        st.sidebar.caption(st.session_state.last_export_message)
+        message = st.session_state.last_export_message
+        status = st.session_state.get("last_export_success")
+        if status is True:
+            st.sidebar.success(message)
+        elif status is False:
+            st.sidebar.error(message)
+        else:
+            st.sidebar.caption(message)
 
     if st.session_state.total_reviewed:
         st.sidebar.warning("Existing review marks detected.")
@@ -667,7 +689,7 @@ def main() -> None:
     if isinstance(url, str) and url.strip():
         st.markdown(f"[Open Link]({url})")
 
-    st.caption(f"Progress saves every {SAVE_INTERVAL} actions.")
+    st.caption(f"Progress pushed to GitHub every {SAVE_INTERVAL} actions")
 
     if 'topic_input' not in st.session_state:
         st.session_state.topic_input = ''
