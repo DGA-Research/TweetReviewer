@@ -135,6 +135,18 @@ def build_export_filename(df: pd.DataFrame) -> str:
 
 
 
+
+def refresh_export_name() -> None:
+    if 'df' not in st.session_state:
+        return
+    previous_auto = st.session_state.get('initial_export_name')
+    new_name = build_export_filename(st.session_state.df)
+    st.session_state.initial_export_name = new_name
+    if st.session_state.get('export_name') == previous_auto:
+        st.session_state.export_name = new_name
+
+
+
 def get_github_config() -> tuple[bool, dict | str]:
     if not hasattr(st, 'secrets'):
         return False, 'Streamlit secrets unavailable; add GitHub credentials to st.secrets'
@@ -284,6 +296,7 @@ def initialize_state(file_path: str, source_label: str | None = None) -> None:
     st.session_state.reset_export_name = False
     st.session_state.export_name = st.session_state.initial_export_name
     update_counts()
+    refresh_export_name()
     advance_to_next_unreviewed()
 
 
@@ -429,6 +442,7 @@ def handle_pass() -> None:
     })
     st.session_state.current_index += 1
     update_counts()
+    refresh_export_name()
     increment_action_counter()
     advance_to_next_unreviewed()
 
@@ -455,6 +469,7 @@ def handle_bullet(topic: str) -> None:
         st.session_state.topic_history.append(topic_upper)
     st.session_state.current_index += 1
     update_counts()
+    refresh_export_name()
     increment_action_counter()
     advance_to_next_unreviewed()
 
@@ -484,6 +499,7 @@ def handle_back() -> bool:
     st.session_state.current_index = idx
     st.session_state.actions_since_save = max(st.session_state.actions_since_save - 1, 0)
     update_counts()
+    refresh_export_name()
     advance_to_next_unreviewed()
     return True
 
@@ -503,6 +519,7 @@ def reset_for_rereview() -> None:
     st.session_state.reset_export_name = True
     st.session_state.pop('export_name', None)
     update_counts()
+    refresh_export_name()
     advance_to_next_unreviewed()
     st.session_state.df.to_excel(st.session_state.excel_path, index=False)
     save_progress(force=True)
