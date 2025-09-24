@@ -109,13 +109,13 @@ def derive_export_metadata(df: pd.DataFrame) -> tuple[str, str, str]:
             pass
 
     last_reviewed_date = 'unknown'
-    reviewed_series = df.get('Reviewed Passed')
-    if reviewed_series is not None and not reviewed_series.dropna().empty:
-        reviewed_indices = reviewed_series.fillna(False)
-        if reviewed_indices.any():
-            candidate_dates = df.loc[reviewed_indices, 'Date Correct Format']
-            if candidate_dates.dropna().empty and fallback_date_series is not None:
-                candidate_dates = df.loc[reviewed_indices, 'Date']
+    reviewed_series = df.get('Reviewed')
+    if reviewed_series is not None:
+        reviewed_mask = reviewed_series.fillna(False).astype(bool)
+        if reviewed_mask.any():
+            candidate_dates = df.loc[reviewed_mask, 'Date Correct Format'] if 'Date Correct Format' in df.columns else None
+            if candidate_dates is None or candidate_dates.dropna().empty:
+                candidate_dates = df.loc[reviewed_mask, 'Date'] if 'Date' in df.columns else None
             if candidate_dates is not None and not candidate_dates.dropna().empty:
                 try:
                     reviewed_dates = pd.to_datetime(candidate_dates.dropna())
@@ -243,10 +243,13 @@ def load_dataframe(file_path: str) -> tuple[pd.DataFrame, int]:
     if sort_series is not None:
         df = df.assign(_sort_date=sort_series).sort_values('_sort_date', kind='stable', na_position='last').drop(columns='_sort_date').reset_index(drop=True)
 
-    for column in ("Reviewed Passed", "Reviewed Bulleted"):
-        if column not in df.columns:
-            df[column] = False
-        df[column] = df[column].fillna(False).astype(bool)
+    if 'Reviewed' not in df.columns:
+        df['Reviewed'] = False
+    df['Reviewed'] = df['Reviewed'].fillna(False).astype(bool)
+
+    if 'Bullet topic' not in df.columns:
+        df['Bullet topic'] = ''
+    df['Bullet topic'] = df['Bullet topic'].fillna('').astype(str)
 
     return df, removed
 
@@ -272,7 +275,7 @@ def initialize_state(file_path: str, source_label: str | None = None) -> None:
 
     st.session_state.content_by_topic: dict[str, list[dict[str, str]]] = {}
     st.session_state.topic_history: list[str] = []
-    st.session_state.history_stack: list[tuple[int, str, str | None]] = []
+    st.session_state.history_stack: list[dict[str, object]] = []
     st.session_state.current_index = 0
     st.session_state.actions_since_save = 0
     st.session_state.last_save_message = None
@@ -286,15 +289,19 @@ def initialize_state(file_path: str, source_label: str | None = None) -> None:
 
 def update_counts() -> None:
     df = st.session_state.df
-    st.session_state.pass_count = int(df["Reviewed Passed"].sum())
-    st.session_state.bullet_count = int(df["Reviewed Bulleted"].sum())
+    reviewed = df['Reviewed'].fillna(False).astype(bool) if 'Reviewed' in df.columns else pd.Series(dtype=bool)
+    bullet_topics = df['Bullet topic'].fillna('').astype(str).str.strip() if 'Bullet topic' in df.columns else pd.Series([''] * len(df))
+    bullet_mask = reviewed & (bullet_topics != '')
+    pass_mask = reviewed & ~bullet_mask
+    st.session_state.pass_count = int(pass_mask.sum())
+    st.session_state.bullet_count = int(bullet_mask.sum())
     st.session_state.total_reviewed = st.session_state.pass_count + st.session_state.bullet_count
 
 
 def advance_to_next_unreviewed() -> None:
     df = st.session_state.df
     idx = st.session_state.current_index
-    while idx < len(df) and (df.at[idx, "Reviewed Passed"] or df.at[idx, "Reviewed Bulleted"]):
+    while idx < len(df) and bool(df.at[idx, 'Reviewed']):
         idx += 1
     st.session_state.current_index = idx
 
@@ -407,9 +414,19 @@ def format_text_for_bullet(row: pd.Series, topic: str) -> None:
 
 
 def handle_pass() -> None:
+    df = st.session_state.df
     idx = st.session_state.current_index
-    st.session_state.df.at[idx, "Reviewed Passed"] = True
-    st.session_state.history_stack.append((idx, "pass", None))
+    prev_reviewed = bool(df.at[idx, 'Reviewed']) if 'Reviewed' in df.columns else False
+    prev_topic_value = df.at[idx, 'Bullet topic'] if 'Bullet topic' in df.columns else ''
+    prev_topic = '' if pd.isna(prev_topic_value) else str(prev_topic_value)
+    df.at[idx, 'Reviewed'] = True
+    df.at[idx, 'Bullet topic'] = ''
+    st.session_state.history_stack.append({
+        'index': idx,
+        'action': 'pass',
+        'prev_reviewed': prev_reviewed,
+        'prev_topic': prev_topic,
+    })
     st.session_state.current_index += 1
     update_counts()
     increment_action_counter()
@@ -417,11 +434,23 @@ def handle_pass() -> None:
 
 
 def handle_bullet(topic: str) -> None:
+    df = st.session_state.df
     idx = st.session_state.current_index
-    topic_upper = topic.upper()
-    st.session_state.df.at[idx, "Reviewed Bulleted"] = True
-    st.session_state.history_stack.append((idx, "bullet", topic_upper))
-    format_text_for_bullet(st.session_state.df.iloc[idx], topic_upper)
+    topic_clean = topic.strip()
+    topic_upper = topic_clean.upper()
+    prev_reviewed = bool(df.at[idx, 'Reviewed']) if 'Reviewed' in df.columns else False
+    prev_topic_value = df.at[idx, 'Bullet topic'] if 'Bullet topic' in df.columns else ''
+    prev_topic = '' if pd.isna(prev_topic_value) else str(prev_topic_value)
+    df.at[idx, 'Reviewed'] = True
+    df.at[idx, 'Bullet topic'] = topic_clean
+    st.session_state.history_stack.append({
+        'index': idx,
+        'action': 'bullet',
+        'prev_reviewed': prev_reviewed,
+        'prev_topic': prev_topic,
+        'topic': topic_upper,
+    })
+    format_text_for_bullet(df.iloc[idx], topic_upper)
     if topic_upper not in st.session_state.topic_history:
         st.session_state.topic_history.append(topic_upper)
     st.session_state.current_index += 1
@@ -433,18 +462,25 @@ def handle_bullet(topic: str) -> None:
 def handle_back() -> bool:
     if not st.session_state.history_stack:
         return False
-    idx, action, topic = st.session_state.history_stack.pop()
-    if action == "pass":
-        st.session_state.df.at[idx, "Reviewed Passed"] = False
-    else:
-        st.session_state.df.at[idx, "Reviewed Bulleted"] = False
-        if topic:
-            entries = st.session_state.content_by_topic.get(topic, [])
-            if entries:
-                entries.pop()
-                if not entries:
-                    st.session_state.content_by_topic.pop(topic, None)
-            rebuild_document()
+
+    entry = st.session_state.history_stack.pop()
+    idx = entry.get('index')
+    action = entry.get('action')
+    topic = entry.get('topic')
+
+    if action == 'bullet' and topic:
+        entries = st.session_state.content_by_topic.get(topic, [])
+        if entries:
+            entries.pop()
+            if not entries:
+                st.session_state.content_by_topic.pop(topic, None)
+        rebuild_document()
+
+    prev_reviewed = entry.get('prev_reviewed', False)
+    prev_topic = entry.get('prev_topic', '')
+    st.session_state.df.at[idx, 'Reviewed'] = prev_reviewed
+    st.session_state.df.at[idx, 'Bullet topic'] = prev_topic
+
     st.session_state.current_index = idx
     st.session_state.actions_since_save = max(st.session_state.actions_since_save - 1, 0)
     update_counts()
@@ -453,8 +489,8 @@ def handle_back() -> bool:
 
 
 def reset_for_rereview() -> None:
-    st.session_state.df["Reviewed Passed"] = False
-    st.session_state.df["Reviewed Bulleted"] = False
+    st.session_state.df['Reviewed'] = False
+    st.session_state.df['Bullet topic'] = ''
     st.session_state.history_stack = []
     st.session_state.content_by_topic = {}
     st.session_state.topic_history = []
