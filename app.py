@@ -520,6 +520,17 @@ def main() -> None:
             key="download_local_copy",
         )
 
+        word_buffer = BytesIO()
+        st.session_state.doc.save(word_buffer)
+        word_buffer.seek(0)
+        st.sidebar.download_button(
+            "Save Word summary",
+            data=word_buffer,
+            file_name=WORD_FILENAME,
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            key="download_word_copy",
+        )
+
         if st.sidebar.button("Save to Git"):
             destination = Path(st.session_state.export_name)
             if not destination.is_absolute():
