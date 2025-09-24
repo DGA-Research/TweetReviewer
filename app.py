@@ -147,6 +147,27 @@ def build_export_filename(df: pd.DataFrame) -> str:
 
 
 
+
+def parse_review_filename(name: str) -> tuple[str, str, str, str, bool, str] | None:
+    path = Path(name)
+    suffix = path.suffix
+    stem = path.stem
+    is_auto = False
+    if stem.endswith('_autoPush'):
+        is_auto = True
+        stem = stem[:-len('_autoPush')]
+    parts = stem.split('_')
+    if len(parts) < 4 or parts[0] != 'REVIEWED':
+        return None
+    today = parts[-1]
+    last_date = parts[-2]
+    first_date = parts[-3]
+    handle = '_'.join(parts[1:-3]) or 'unknown'
+    if not (len(first_date) == 8 and first_date.isdigit() and len(last_date) == 8 and last_date.isdigit() and len(today) == 8 and today.isdigit()):
+        return None
+    return handle, first_date, last_date, today, is_auto, suffix
+
+
 def refresh_export_name() -> None:
     if 'df' not in st.session_state:
         return
@@ -232,16 +253,12 @@ def save_and_git_commit(destination: Path, df: pd.DataFrame) -> tuple[bool, str]
 
 
 def prune_previous_auto_push_files(current_destination: Path) -> None:
-    stem = current_destination.stem
-    suffix = current_destination.suffix
-    if not stem.endswith('_autoPush'):
+    parsed = parse_review_filename(current_destination.name)
+    if not parsed:
         return
-    core_stem = stem[:-len('_autoPush')]
-    parts = core_stem.split('_')
-    if len(parts) < 3 or parts[0] != 'REVIEWED':
+    handle, first_date, last_date, today, is_auto, suffix = parsed
+    if not is_auto:
         return
-    prefix = '_'.join(parts[:3])
-    autopush_suffix = f"_autoPush{suffix}" if suffix else '_autoPush'
 
     ok, cfg_or_message = get_github_config()
     if not ok:
@@ -274,13 +291,15 @@ def prune_previous_auto_push_files(current_destination: Path) -> None:
         if entry.get('type') != 'file':
             continue
         name = entry.get('name')
-        if not isinstance(name, str):
+        parsed_entry = parse_review_filename(name)
+        if not parsed_entry:
+            continue
+        e_handle, e_first, _e_last, _e_today, e_auto, _e_suffix = parsed_entry
+        if not e_auto:
+            continue
+        if e_handle != handle or e_first != first_date:
             continue
         if name == current_destination.name:
-            continue
-        if not name.endswith(autopush_suffix):
-            continue
-        if not name.startswith(prefix):
             continue
         sha = entry.get('sha')
         if not sha:
@@ -298,7 +317,77 @@ def prune_previous_auto_push_files(current_destination: Path) -> None:
             continue
 
 
+
+def prune_older_manual_reviews(current_destination: Path) -> None:
+    parsed = parse_review_filename(current_destination.name)
+    if not parsed:
+        return
+    handle, first_date, last_date, _today, is_auto, suffix = parsed
+    if is_auto:
+        return
+
+    ok, cfg_or_message = get_github_config()
+    if not ok:
+        return
+    cfg = cfg_or_message
+    headers = {
+        'Authorization': f"Bearer {cfg['token']}",
+        'Accept': 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+    }
+    base_contents_url = f"https://api.github.com/repos/{cfg['owner']}/{cfg['repo']}/contents"
+    target_dir = cfg['target_dir']
+    list_url = base_contents_url if not target_dir else f"{base_contents_url}/{target_dir}"
+    params = {'ref': cfg['branch']}
+
+    try:
+        list_response = requests.get(list_url, headers=headers, params=params)
+    except Exception:
+        return
+    if list_response.status_code != 200:
+        return
+    try:
+        entries = list_response.json()
+    except ValueError:
+        return
+    if not isinstance(entries, list):
+        return
+
+    for entry in entries:
+        if entry.get('type') != 'file':
+            continue
+        name = entry.get('name')
+        parsed_entry = parse_review_filename(name)
+        if not parsed_entry:
+            continue
+        e_handle, e_first, e_last, _e_today, e_auto, _e_suffix = parsed_entry
+        if e_auto:
+            continue
+        if e_handle != handle or e_first != first_date:
+            continue
+        if name == current_destination.name:
+            continue
+        if e_last >= last_date:
+            continue
+        sha = entry.get('sha')
+        if not sha:
+            continue
+        relative_name = name if not target_dir else f"{target_dir}/{name}"
+        delete_url = f"{base_contents_url}/{relative_name}"
+        payload = {
+            'message': f"Remove older review {name}",
+            'sha': sha,
+            'branch': cfg['branch'],
+        }
+        try:
+            requests.delete(delete_url, headers=headers, json=payload)
+        except Exception:
+            continue
+
+
+
 def list_excel_files() -> list[str]:
+
 
     return sorted([name for name in os.listdir(".") if name.lower().endswith(".xlsx")])
 
@@ -696,6 +785,7 @@ def main() -> None:
                 st.session_state.last_export_message = message
                 st.session_state.last_export_success = success
                 if success:
+                    prune_older_manual_reviews(destination)
                     st.session_state.initial_export_name = build_export_filename(st.session_state.df)
                     st.session_state.reset_export_name = True
 
