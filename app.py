@@ -97,18 +97,33 @@ def derive_export_metadata(df: pd.DataFrame) -> tuple[str, str, str]:
         handle = extract_handle_from_url(url_series.dropna().iloc[0])
 
     date_series = df.get('Date Correct Format')
+    fallback_date_series = df.get('Date')
+    first_date = 'unknown'
     if date_series is None or date_series.dropna().empty:
-        date_series = df.get('Date')
-    first_date = last_date = 'unknown'
+        date_series = fallback_date_series
     if date_series is not None and not date_series.dropna().empty:
         try:
             dates = pd.to_datetime(date_series.dropna())
             first_date = dates.min().strftime('%Y%m%d')
-            last_date = dates.max().strftime('%Y%m%d')
         except Exception:
             pass
 
-    return handle, first_date, last_date
+    last_reviewed_date = 'unknown'
+    reviewed_series = df.get('Reviewed Passed')
+    if reviewed_series is not None and not reviewed_series.dropna().empty:
+        reviewed_indices = reviewed_series.fillna(False)
+        if reviewed_indices.any():
+            candidate_dates = df.loc[reviewed_indices, 'Date Correct Format']
+            if candidate_dates.dropna().empty and fallback_date_series is not None:
+                candidate_dates = df.loc[reviewed_indices, 'Date']
+            if candidate_dates is not None and not candidate_dates.dropna().empty:
+                try:
+                    reviewed_dates = pd.to_datetime(candidate_dates.dropna())
+                    last_reviewed_date = reviewed_dates.max().strftime('%Y%m%d')
+                except Exception:
+                    pass
+
+    return handle, first_date, last_reviewed_date
 
 
 def build_export_filename(df: pd.DataFrame) -> str:
@@ -218,6 +233,15 @@ def load_dataframe(file_path: str) -> tuple[pd.DataFrame, int]:
     original = len(df)
     df = df[df["URL"].fillna("").str.strip() != ""].reset_index(drop=True)
     removed = original - len(df)
+
+    if 'Date Correct Format' in df.columns:
+        sort_series = pd.to_datetime(df['Date Correct Format'], errors='coerce')
+    else:
+        sort_series = None
+    if sort_series is None or sort_series.dropna().empty:
+        sort_series = pd.to_datetime(df['Date'], errors='coerce') if 'Date' in df.columns else None
+    if sort_series is not None:
+        df = df.assign(_sort_date=sort_series).sort_values('_sort_date', kind='stable', na_position='last').drop(columns='_sort_date').reset_index(drop=True)
 
     for column in ("Reviewed Passed", "Reviewed Bulleted"):
         if column not in df.columns:
