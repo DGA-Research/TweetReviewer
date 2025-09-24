@@ -230,7 +230,76 @@ def save_and_git_commit(destination: Path, df: pd.DataFrame) -> tuple[bool, str]
 
     return True, f"Uploaded and committed {destination.name} to GitHub"
 
+
+def prune_previous_auto_push_files(current_destination: Path) -> None:
+    stem = current_destination.stem
+    suffix = current_destination.suffix
+    if not stem.endswith('_autoPush'):
+        return
+    core_stem = stem[:-len('_autoPush')]
+    parts = core_stem.split('_')
+    if len(parts) < 3 or parts[0] != 'REVIEWED':
+        return
+    prefix = '_'.join(parts[:3])
+    autopush_suffix = f"_autoPush{suffix}" if suffix else '_autoPush'
+
+    ok, cfg_or_message = get_github_config()
+    if not ok:
+        return
+    cfg = cfg_or_message
+    headers = {
+        'Authorization': f"Bearer {cfg['token']}",
+        'Accept': 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+    }
+    base_contents_url = f"https://api.github.com/repos/{cfg['owner']}/{cfg['repo']}/contents"
+    target_dir = cfg['target_dir']
+    list_url = base_contents_url if not target_dir else f"{base_contents_url}/{target_dir}"
+    params = {'ref': cfg['branch']}
+
+    try:
+        list_response = requests.get(list_url, headers=headers, params=params)
+    except Exception:
+        return
+    if list_response.status_code != 200:
+        return
+    try:
+        entries = list_response.json()
+    except ValueError:
+        return
+    if not isinstance(entries, list):
+        return
+
+    for entry in entries:
+        if entry.get('type') != 'file':
+            continue
+        name = entry.get('name')
+        if not isinstance(name, str):
+            continue
+        if name == current_destination.name:
+            continue
+        if not name.endswith(autopush_suffix):
+            continue
+        if not name.startswith(prefix):
+            continue
+        sha = entry.get('sha')
+        if not sha:
+            continue
+        relative_name = name if not target_dir else f"{target_dir}/{name}"
+        delete_url = f"{base_contents_url}/{relative_name}"
+        payload = {
+            'message': f"Remove previous auto push {name}",
+            'sha': sha,
+            'branch': cfg['branch'],
+        }
+        try:
+            requests.delete(delete_url, headers=headers, json=payload)
+        except Exception:
+            continue
+
+
 def list_excel_files() -> list[str]:
+
     return sorted([name for name in os.listdir(".") if name.lower().endswith(".xlsx")])
 
 
@@ -349,6 +418,8 @@ def save_progress(force: bool = False) -> None:
         success, message = save_and_git_commit(auto_destination, st.session_state.df)
         st.session_state.last_export_message = message
         st.session_state.last_export_success = success
+        if success:
+            prune_previous_auto_push_files(auto_destination)
         save_note = 'Progress auto-pushed' if success else 'Auto push failed'
     else:
         st.session_state.last_export_success = None
