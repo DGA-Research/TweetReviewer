@@ -155,8 +155,9 @@ def initialize_state(file_path: str, source_label: str | None = None) -> None:
     st.session_state.actions_since_save = 0
     st.session_state.last_save_message = None
     st.session_state.last_export_message = None
-    export_default = build_export_filename(df)
-    st.session_state.export_name = export_default
+    st.session_state.initial_export_name = build_export_filename(df)
+    st.session_state.reset_export_name = False
+    st.session_state.export_name = st.session_state.initial_export_name
     update_counts()
     advance_to_next_unreviewed()
 
@@ -340,7 +341,9 @@ def reset_for_rereview() -> None:
     st.session_state.clear_topic_inputs = False
     st.session_state.doc = prepare_document(Document())
     st.session_state.last_export_message = None
-    st.session_state.export_name = build_export_filename(st.session_state.df)
+    st.session_state.initial_export_name = build_export_filename(st.session_state.df)
+    st.session_state.reset_export_name = True
+    st.session_state.pop('export_name', None)
     update_counts()
     advance_to_next_unreviewed()
     st.session_state.df.to_excel(st.session_state.excel_path, index=False)
@@ -396,6 +399,14 @@ def main() -> None:
         save_progress(force=True)
         trigger_rerun()
 
+    if 'initial_export_name' not in st.session_state:
+        st.session_state.initial_export_name = build_export_filename(st.session_state.df)
+    if st.session_state.get('reset_export_name'):
+        st.session_state.export_name = st.session_state.initial_export_name
+        st.session_state.reset_export_name = False
+    elif 'export_name' not in st.session_state:
+        st.session_state.export_name = st.session_state.initial_export_name
+
     if 'export_name' in st.session_state:
         st.sidebar.text_input("Git filename", value=st.session_state.export_name, key="export_name")
         if st.sidebar.button("Save to Git"):
@@ -407,7 +418,8 @@ def main() -> None:
             if success:
                 st.session_state.last_export_message = message
                 st.sidebar.success(message)
-                st.session_state.export_name = build_export_filename(st.session_state.df)
+                st.session_state.initial_export_name = build_export_filename(st.session_state.df)
+                st.session_state.reset_export_name = True
             else:
                 st.session_state.last_export_message = message
                 st.sidebar.error(message)
