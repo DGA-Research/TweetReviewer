@@ -594,9 +594,9 @@ def main() -> None:
             st.session_state.export_name = st.session_state.initial_export_name
 
         if 'export_name' in st.session_state:
-            st.sidebar.text_input("Output xlsx filename", value=st.session_state.export_name, key="export_name")
+            st.sidebar.text_input("Output xlsx filename:", value=st.session_state.export_name, key="export_name")
 
-            if st.sidebar.button("Save to Git"):
+            if st.sidebar.button("Push xlsx to Git"):
                 destination = Path(st.session_state.export_name)
                 if not destination.is_absolute():
                     destination = Path.cwd() / destination
@@ -616,7 +616,7 @@ def main() -> None:
             st.session_state.df.to_excel(download_buffer, index=False)
             download_buffer.seek(0)
             st.sidebar.download_button(
-                "Save locally",
+                "Download .xlsx sheet",
                 data=download_buffer,
                 file_name=local_filename,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -627,7 +627,7 @@ def main() -> None:
             st.session_state.doc.save(word_buffer)
             word_buffer.seek(0)
             st.sidebar.download_button(
-                "Save Word summary",
+                "Download .docx summary",
                 data=word_buffer,
                 file_name=WORD_FILENAME,
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
