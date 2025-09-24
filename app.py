@@ -6,6 +6,7 @@ import subprocess
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 from docx import Document
 from docx.enum.style import WD_STYLE_TYPE
 from docx.oxml import OxmlElement
@@ -21,6 +22,53 @@ def trigger_rerun() -> None:
     if rerun_fn is None:
         raise RuntimeError('Streamlit rerun function is unavailable in this environment.')
     rerun_fn()
+
+
+
+
+
+def ensure_hotkeys_script() -> None:
+    if st.session_state.get("hotkeys_injected"):
+        return
+
+    components.html(
+        """
+        <script>
+        (function() {
+            const doc = window.parent.document;
+            if (doc.hotkeysRegistered) { return; }
+            doc.hotkeysRegistered = true;
+            doc.addEventListener('keydown', function(event) {
+                const active = doc.activeElement;
+                if (active && ['INPUT', 'TEXTAREA'].includes(active.tagName)) {
+                    return;
+                }
+                const key = event.key.toLowerCase();
+                if (key === 'q' || key === 'w') {
+                    const label = key === 'q' ? 'Pass (Q)' : 'Bullet (W)';
+                    const buttons = Array.from(doc.querySelectorAll('button'));
+                    const target = buttons.find(btn => {
+                        const text = (btn.innerText || '').trim();
+                        return text === label;
+                    });
+                    if (target) {
+                        target.click();
+                        event.preventDefault();
+                    }
+                }
+            }, true);
+        })();
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
+    st.session_state.hotkeys_injected = True
+
+
+
+
+
 
 
 
@@ -471,7 +519,8 @@ def main() -> None:
         st.session_state.clear_topic_inputs = False
 
     columns = st.columns(3)
-    if columns[0].button("Pass"):
+    ensure_hotkeys_script()
+    if columns[0].button("Pass (Q)", key="pass_button"):
         handle_pass()
         trigger_rerun()
 
@@ -480,7 +529,7 @@ def main() -> None:
         st.selectbox("Choose existing topic", existing_topics, key="topic_select")
         st.text_input("Or enter a topic", key="topic_input")
 
-    if columns[1].button("Bullet"):
+    if columns[1].button("Bullet (W)", key="bullet_button"):
         topic_choice = (st.session_state.topic_input or '').strip() or (st.session_state.topic_select or '').strip()
         if not topic_choice:
             st.warning("Provide a topic before marking as bullet.")
