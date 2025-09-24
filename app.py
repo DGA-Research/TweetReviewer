@@ -63,7 +63,7 @@ def derive_export_metadata(df: pd.DataFrame) -> tuple[str, str, str]:
 
 def build_export_filename(df: pd.DataFrame) -> str:
     handle, first_date, last_date = derive_export_metadata(df)
-    today = datetime.now().strftime('%m%d%Y')
+    today = datetime.now().strftime('%Y%m%d')
     parts = ['REVIEWED', handle, first_date, last_date, today]
     safe_parts = [re.sub(r'[^A-Za-z0-9_-]+', '_', part) if part else 'unknown' for part in parts]
     return '_'.join(safe_parts) + '.xlsx'
@@ -487,4 +487,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+
 
