@@ -44,7 +44,6 @@ Streamlit will open (or display) a local URL such as `http://localhost:8501`. Ke
    - Read the tweet content, optional flags, and any quote indicators.
    - Choose **Pass** for non-actionable tweets or **Bullet** to log them under a topic. Enter a new topic or select a previous one; topics are stored in uppercase.
    - Use **Undo last** to revert the most recent action.
-   - Keyboard shortcuts: press `q` for Pass or `w` for Bullet (when no text input is focused).
 3. **Track progress**
    - Sidebar metrics show the counts of passed and bulleted tweets, along with total reviewed.
    - Every 20 actions (`SAVE_INTERVAL`), the app writes your progress back to the Excel workbook and refreshes the Word document (`Issue Clipbook.docx`).
