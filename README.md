@@ -5,7 +5,6 @@ Streamlit app for reviewing downloaded tweet spreadsheets. The interface lets yo
 ## Features
 - Filter and sort tweets from Excel workbooks, removing rows without URLs.
 - Sidebar metrics plus quick actions for download, manual export, and reset.
-- Keyboard shortcuts (`q` for Pass, `w` for Bullet) to speed up triage.
 - Automatic `.docx` generation that groups bullet tweets under uppercase topics with live hyperlinks.
 - Optional GitHub integration that commits the reviewed sheet every 20 actions and prunes older uploads.
 
