@@ -19,6 +19,51 @@ WORD_FILENAME = "Issue Clipbook.docx"
 SAVE_INTERVAL = 20
 
 
+def auto_detect_column_mapping(df_columns: list[str]) -> dict[str, str]:
+    """Auto-detect column mappings based on common patterns."""
+    columns_lower = {col.lower(): col for col in df_columns}
+    mapping = {}
+
+    # URL mapping
+    for pattern in ['url']:
+        if pattern in columns_lower:
+            mapping['url'] = columns_lower[pattern]
+            break
+
+    # Text mapping
+    for pattern in ['text', 'content', 'tweet', 'message']:
+        if pattern in columns_lower:
+            mapping['text'] = columns_lower[pattern]
+            break
+
+    # Date mapping
+    for pattern in ['date correct format', 'date', 'createdat', 'created_at', 'timestamp', 'posted_at']:
+        if pattern in columns_lower:
+            mapping['date'] = columns_lower[pattern]
+            break
+
+    # Quote tweet mapping
+    for pattern in ['is_quote_tweet', 'isquote', 'is_quote', 'quote tweet', 'quote_tweet']:
+        if pattern in columns_lower:
+            mapping['quote'] = columns_lower[pattern]
+            break
+
+    # Bad words mapping (optional)
+    for pattern in ['bad_words_found', 'flags', 'warnings']:
+        if pattern in columns_lower:
+            mapping['bad_words'] = columns_lower[pattern]
+            break
+
+    return mapping
+
+
+def get_column_mapping(key: str, default: str = '') -> str:
+    """Get the actual column name from the mapping."""
+    if 'column_mapping' not in st.session_state:
+        return default
+    return st.session_state.column_mapping.get(key, default)
+
+
 def trigger_rerun() -> None:
     rerun_fn = getattr(st, 'experimental_rerun', None) or getattr(st, 'rerun', None)
     if rerun_fn is None:
@@ -406,10 +451,41 @@ def prepare_document(doc: Document) -> Document:
     return doc
 
 
-def load_dataframe(file_path: str) -> tuple[pd.DataFrame, int]:
+def load_dataframe(file_path: str) -> tuple[pd.DataFrame, int, dict[str, str]]:
     df = pd.read_excel(file_path)
-    if "URL" not in df.columns:
-        raise ValueError("Expected a 'URL' column in the workbook")
+
+    # Auto-detect column mappings
+    detected_mapping = auto_detect_column_mapping(list(df.columns))
+
+    # Check for URL column (required)
+    url_col = detected_mapping.get('url')
+    if not url_col or url_col not in df.columns:
+        raise ValueError(f"Expected a 'URL' column in the workbook. Available columns: {', '.join(df.columns)}")
+
+    # Rename columns to standard names for internal use
+    rename_map = {}
+    if url_col and url_col != 'URL':
+        rename_map[url_col] = 'URL'
+
+    text_col = detected_mapping.get('text')
+    if text_col and text_col != 'Text':
+        rename_map[text_col] = 'Text'
+
+    date_col = detected_mapping.get('date')
+    if date_col and date_col not in ['Date', 'Date Correct Format']:
+        rename_map[date_col] = 'Date'
+
+    quote_col = detected_mapping.get('quote')
+    if quote_col and quote_col != 'is_quote_tweet':
+        rename_map[quote_col] = 'is_quote_tweet'
+
+    bad_words_col = detected_mapping.get('bad_words')
+    if bad_words_col and bad_words_col != 'bad_words_found':
+        rename_map[bad_words_col] = 'bad_words_found'
+
+    # Apply renames
+    if rename_map:
+        df = df.rename(columns=rename_map)
 
     original = len(df)
     df = df[df["URL"].fillna("").str.strip() != ""].reset_index(drop=True)
@@ -432,15 +508,17 @@ def load_dataframe(file_path: str) -> tuple[pd.DataFrame, int]:
         df['Bullet topic'] = ''
     df['Bullet topic'] = df['Bullet topic'].fillna('').astype(str)
 
-    return df, removed
+    return df, removed, detected_mapping
 
 
 def initialize_state(file_path: str, source_label: str | None = None) -> None:
-    df, removed = load_dataframe(file_path)
+    df, removed, detected_mapping = load_dataframe(file_path)
     st.session_state.df = df
     st.session_state.excel_path = file_path
     st.session_state.source_label = source_label or Path(file_path).name
     st.session_state.removed_rows = removed
+    st.session_state.column_mapping = detected_mapping
+    st.session_state.original_columns = list(df.columns)
     if removed:
         df.to_excel(file_path, index=False)
 
@@ -747,6 +825,22 @@ def main() -> None:
 
     if "excel_path" not in st.session_state or selected_file != st.session_state.excel_path:
         initialize_state(selected_file, Path(selected_file).name)
+
+    # Display column mappings
+    if 'column_mapping' in st.session_state and st.session_state.column_mapping:
+        with st.sidebar.expander("📋 Column Mappings", expanded=False):
+            st.caption("Auto-detected column mappings:")
+            mapping = st.session_state.column_mapping
+            if 'url' in mapping:
+                st.text(f"URL: {mapping['url']}")
+            if 'text' in mapping:
+                st.text(f"Text: {mapping['text']}")
+            if 'date' in mapping:
+                st.text(f"Date: {mapping['date']}")
+            if 'quote' in mapping:
+                st.text(f"Quote: {mapping['quote']}")
+            if 'bad_words' in mapping:
+                st.text(f"Flags: {mapping['bad_words']}")
 
     st.sidebar.metric("Passed", st.session_state.pass_count)
     st.sidebar.metric("Bulleted", st.session_state.bullet_count)
