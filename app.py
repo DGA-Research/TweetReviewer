@@ -451,16 +451,31 @@ def prepare_document(doc: Document) -> Document:
     return doc
 
 
-def load_dataframe(file_path: str) -> tuple[pd.DataFrame, int, dict[str, str]]:
-    df = pd.read_excel(file_path)
+def load_dataframe(file_path: str, mapping_override: dict[str, str] | None = None) -> tuple[pd.DataFrame, int, dict[str, str], list[str]]:
+    raw_df = pd.read_excel(file_path)
+    source_columns = list(raw_df.columns)
 
     # Auto-detect column mappings
-    detected_mapping = auto_detect_column_mapping(list(df.columns))
+    detected_mapping = auto_detect_column_mapping(source_columns)
+
+    # Apply user overrides when provided
+    overrides = mapping_override or {}
+    for key, column_name in overrides.items():
+        if column_name and column_name in source_columns:
+            detected_mapping[key] = column_name
+
+    # Guard against duplicate assignments
+    selected_columns = [detected_mapping.get(k) for k in ['url', 'text', 'date', 'quote', 'bad_words']]
+    selected_columns = [col for col in selected_columns if col]
+    if len(selected_columns) != len(set(selected_columns)):
+        raise ValueError("Duplicate column selections detected. Assign each input column to at most one field.")
+
+    df = raw_df.copy()
 
     # Check for URL column (required)
     url_col = detected_mapping.get('url')
     if not url_col or url_col not in df.columns:
-        raise ValueError(f"Expected a 'URL' column in the workbook. Available columns: {', '.join(df.columns)}")
+        raise ValueError(f"Expected a 'URL' column in the workbook. Available columns: {', '.join(source_columns)}")
 
     # Rename columns to standard names for internal use
     rename_map = {}
@@ -508,16 +523,20 @@ def load_dataframe(file_path: str) -> tuple[pd.DataFrame, int, dict[str, str]]:
         df['Bullet topic'] = ''
     df['Bullet topic'] = df['Bullet topic'].fillna('').astype(str)
 
-    return df, removed, detected_mapping
+    return df, removed, detected_mapping, source_columns
 
 
-def initialize_state(file_path: str, source_label: str | None = None) -> None:
-    df, removed, detected_mapping = load_dataframe(file_path)
+def initialize_state(file_path: str, source_label: str | None = None, mapping_override: dict[str, str] | None = None) -> None:
+    overrides_store = st.session_state.setdefault('column_mapping_overrides', {})
+    active_override = {k: v for k, v in (mapping_override or {}).items() if v}
+    df, removed, detected_mapping, source_columns = load_dataframe(file_path, active_override or None)
     st.session_state.df = df
     st.session_state.excel_path = file_path
     st.session_state.source_label = source_label or Path(file_path).name
     st.session_state.removed_rows = removed
     st.session_state.column_mapping = detected_mapping
+    st.session_state.available_columns = source_columns
+    overrides_store[file_path] = active_override
     st.session_state.original_columns = list(df.columns)
     if removed:
         df.to_excel(file_path, index=False)
@@ -821,26 +840,86 @@ def main() -> None:
     if "excel_path" in st.session_state and st.session_state.excel_path in excel_files:
         default_index = excel_files.index(st.session_state.excel_path)
 
+    mapping_overrides = st.session_state.setdefault('column_mapping_overrides', {})
+
     selected_file = st.sidebar.selectbox("Workbook", excel_files, index=default_index, key="workbook_select")
+    selected_override = mapping_overrides.get(selected_file)
 
     if "excel_path" not in st.session_state or selected_file != st.session_state.excel_path:
-        initialize_state(selected_file, Path(selected_file).name)
+        initialize_state(selected_file, Path(selected_file).name, selected_override)
 
     # Display column mappings
-    if 'column_mapping' in st.session_state and st.session_state.column_mapping:
-        with st.sidebar.expander("📋 Column Mappings", expanded=False):
-            st.caption("Auto-detected column mappings:")
+    if st.session_state.get('column_mapping'):
+        with st.sidebar.expander("Column Mappings", expanded=False):
+            st.caption("Choose which workbook columns map to Tweet Reviewer fields.")
+            available_columns = list(st.session_state.get('available_columns', []))
             mapping = st.session_state.column_mapping
-            if 'url' in mapping:
-                st.text(f"URL: {mapping['url']}")
-            if 'text' in mapping:
-                st.text(f"Text: {mapping['text']}")
-            if 'date' in mapping:
-                st.text(f"Date: {mapping['date']}")
-            if 'quote' in mapping:
-                st.text(f"Quote: {mapping['quote']}")
-            if 'bad_words' in mapping:
-                st.text(f"Flags: {mapping['bad_words']}")
+
+            if not available_columns:
+                st.info("No columns available in this workbook.")
+            else:
+                def option_index(options, value):
+                    return options.index(value) if value in options else 0
+
+                url_options = available_columns
+                url_choice = st.selectbox(
+                    "URL column",
+                    url_options,
+                    index=option_index(url_options, mapping.get('url')),
+                )
+
+                optional_options = [''] + available_columns
+                text_choice = st.selectbox(
+                    "Text column (optional)",
+                    optional_options,
+                    index=option_index(optional_options, mapping.get('text')),
+                )
+                date_choice = st.selectbox(
+                    "Date column (optional)",
+                    optional_options,
+                    index=option_index(optional_options, mapping.get('date')),
+                )
+                quote_choice = st.selectbox(
+                    "Quote flag column (optional)",
+                    optional_options,
+                    index=option_index(optional_options, mapping.get('quote')),
+                )
+                bad_words_choice = st.selectbox(
+                    "Flags column (optional)",
+                    optional_options,
+                    index=option_index(optional_options, mapping.get('bad_words')),
+                )
+
+                action_cols = st.columns(2)
+                with action_cols[0]:
+                    apply_mapping = st.button("Apply mapping")
+                with action_cols[1]:
+                    reset_mapping = st.button("Use auto-detected mapping")
+
+                if apply_mapping:
+                    new_mapping = {
+                        'url': url_choice,
+                        'text': text_choice or '',
+                        'date': date_choice or '',
+                        'quote': quote_choice or '',
+                        'bad_words': bad_words_choice or '',
+                    }
+                    selected_values = [col for col in new_mapping.values() if col]
+                    duplicates = {col for col in selected_values if selected_values.count(col) > 1}
+                    if duplicates:
+                        st.warning(f"Columns used more than once: {', '.join(sorted(duplicates))}. Select each column only once.")
+                    else:
+                        cleaned_override = {k: v for k, v in new_mapping.items() if v}
+                        st.session_state.column_mapping_overrides[st.session_state.excel_path] = cleaned_override
+                        initialize_state(st.session_state.excel_path, st.session_state.source_label, cleaned_override)
+                        trigger_rerun()
+                        st.stop()
+
+                if reset_mapping:
+                    st.session_state.column_mapping_overrides[st.session_state.excel_path] = {}
+                    initialize_state(st.session_state.excel_path, st.session_state.source_label)
+                    trigger_rerun()
+                    st.stop()
 
     st.sidebar.metric("Passed", st.session_state.pass_count)
     st.sidebar.metric("Bulleted", st.session_state.bullet_count)
@@ -989,9 +1068,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
-
-
 
 
