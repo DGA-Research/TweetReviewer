@@ -451,7 +451,7 @@ def prepare_document(doc: Document) -> Document:
     return doc
 
 
-def load_dataframe(file_path: str, mapping_override: dict[str, str] | None = None) -> tuple[pd.DataFrame, int, dict[str, str], list[str]]:
+def load_dataframe(file_path: str, mapping_override: dict[str, str] | None = None) -> tuple[pd.DataFrame, int, int, dict[str, str], list[str]]:
     raw_df = pd.read_excel(file_path)
     source_columns = list(raw_df.columns)
 
@@ -504,7 +504,11 @@ def load_dataframe(file_path: str, mapping_override: dict[str, str] | None = Non
 
     original = len(df)
     df = df[df["URL"].fillna("").str.strip() != ""].reset_index(drop=True)
-    removed = original - len(df)
+    removed_missing = original - len(df)
+
+    before_dedup = len(df)
+    df = df.drop_duplicates().reset_index(drop=True)
+    removed_duplicates = before_dedup - len(df)
 
     if 'Date Correct Format' in df.columns:
         sort_series = pd.to_datetime(df['Date Correct Format'], errors='coerce')
@@ -523,22 +527,24 @@ def load_dataframe(file_path: str, mapping_override: dict[str, str] | None = Non
         df['Bullet topic'] = ''
     df['Bullet topic'] = df['Bullet topic'].fillna('').astype(str)
 
-    return df, removed, detected_mapping, source_columns
+    return df, removed_missing, removed_duplicates, detected_mapping, source_columns
 
 
 def initialize_state(file_path: str, source_label: str | None = None, mapping_override: dict[str, str] | None = None) -> None:
     overrides_store = st.session_state.setdefault('column_mapping_overrides', {})
     active_override = {k: v for k, v in (mapping_override or {}).items() if v}
-    df, removed, detected_mapping, source_columns = load_dataframe(file_path, active_override or None)
+    df, removed_missing, removed_duplicates, detected_mapping, source_columns = load_dataframe(file_path, active_override or None)
     st.session_state.df = df
     st.session_state.excel_path = file_path
     st.session_state.source_label = source_label or Path(file_path).name
-    st.session_state.removed_rows = removed
+    st.session_state.removed_rows_without_url = removed_missing
+    st.session_state.removed_duplicate_rows = removed_duplicates
+    st.session_state.removed_rows = removed_missing + removed_duplicates
     st.session_state.column_mapping = detected_mapping
     st.session_state.available_columns = source_columns
     overrides_store[file_path] = active_override
     st.session_state.original_columns = list(df.columns)
-    if removed:
+    if removed_missing or removed_duplicates:
         df.to_excel(file_path, index=False)
 
     if os.path.exists(WORD_FILENAME):
@@ -928,8 +934,15 @@ def main() -> None:
     if st.session_state.get("source_label"):
         st.sidebar.caption(f"Reviewing: {st.session_state.source_label}")
 
-    if st.session_state.removed_rows:
-        st.sidebar.info(f"Removed {st.session_state.removed_rows} rows without a URL")
+    removed_missing = st.session_state.get('removed_rows_without_url', 0)
+    removed_duplicates = st.session_state.get('removed_duplicate_rows', 0)
+    if removed_missing or removed_duplicates:
+        parts = []
+        if removed_missing:
+            parts.append(f"{removed_missing} without a URL")
+        if removed_duplicates:
+            parts.append(f"{removed_duplicates} duplicate rows")
+        st.sidebar.info("Removed " + " and ".join(parts))
 
     if st.session_state.last_save_message:
         st.sidebar.caption(st.session_state.last_save_message)
@@ -1068,5 +1081,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
