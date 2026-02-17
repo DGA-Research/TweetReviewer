@@ -534,6 +534,7 @@ def initialize_state(file_path: str, source_label: str | None = None, mapping_ov
     overrides_store = st.session_state.setdefault('column_mapping_overrides', {})
     active_override = {k: v for k, v in (mapping_override or {}).items() if v}
     df, removed_missing, removed_duplicates, detected_mapping, source_columns = load_dataframe(file_path, active_override or None)
+    is_new_file = st.session_state.get('excel_path') != file_path
     st.session_state.df = df
     st.session_state.excel_path = file_path
     st.session_state.source_label = source_label or Path(file_path).name
@@ -557,21 +558,21 @@ def initialize_state(file_path: str, source_label: str | None = None, mapping_ov
     st.session_state.topic_select = ''
     st.session_state.clear_topic_inputs = False
 
-    st.session_state.content_by_topic: dict[str, list[dict[str, str]]] = {}
-    st.session_state.topic_history: list[str] = []
-    st.session_state.history_stack: list[dict[str, object]] = []
-    st.session_state.current_index = 0
-    st.session_state.actions_since_save = 0
-    st.session_state.last_save_message = None
-    st.session_state.last_export_message = None
-    st.session_state.last_export_success = None
-    st.session_state.initial_export_name = build_export_filename(df)
-    st.session_state.reset_export_name = False
-    st.session_state.export_name = st.session_state.initial_export_name
-    update_counts()
-    refresh_export_name()
-    advance_to_next_unreviewed()
-
+    if is_new_file:
+        st.session_state.content_by_topic = {}
+        st.session_state.topic_history = []
+        st.session_state.history_stack = []
+        st.session_state.current_index = 0
+        st.session_state.actions_since_save = 0
+        st.session_state.last_save_message = None
+        st.session_state.last_export_message = None
+        st.session_state.last_export_success = None
+        st.session_state.initial_export_name = build_export_filename(df)
+        st.session_state.reset_export_name = False
+        st.session_state.export_name = st.session_state.initial_export_name
+        update_counts()
+        refresh_export_name()
+        advance_to_next_unreviewed()
 
 def update_counts() -> None:
     df = st.session_state.df
