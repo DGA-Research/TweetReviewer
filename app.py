@@ -529,7 +529,19 @@ def load_dataframe(file_path: str, mapping_override: dict[str, str] | None = Non
 
     return df, removed_missing, removed_duplicates, detected_mapping, source_columns
 
-
+def rebuild_content_from_df(df: pd.DataFrame) -> None:
+    st.session_state.content_by_topic = {}
+    st.session_state.topic_history = []
+    if 'Bullet topic' not in df.columns or 'Reviewed' not in df.columns:
+        return
+    reviewed_mask = df['Reviewed'].fillna(False).astype(bool)
+    bulleted = df[reviewed_mask & df['Bullet topic'].fillna('').astype(str).str.strip().ne('')]
+    for _, row in bulleted.iterrows():
+        topic = str(row['Bullet topic']).strip().upper()
+        format_text_for_bullet(row, topic)
+        if topic not in st.session_state.topic_history:
+            st.session_state.topic_history.append(topic)
+            
 def initialize_state(file_path: str, source_label: str | None = None, mapping_override: dict[str, str] | None = None) -> None:
     overrides_store = st.session_state.setdefault('column_mapping_overrides', {})
     active_override = {k: v for k, v in (mapping_override or {}).items() if v}
@@ -573,6 +585,7 @@ def initialize_state(file_path: str, source_label: str | None = None, mapping_ov
         update_counts()
         refresh_export_name()
         advance_to_next_unreviewed()
+        rebuild_content_from_df(df)
 
 def update_counts() -> None:
     df = st.session_state.df
