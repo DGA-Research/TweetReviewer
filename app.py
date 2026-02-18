@@ -553,26 +553,34 @@ def initialize_state(file_path: str, source_label: str | None = None, mapping_ov
     else:
         doc = Document()
     st.session_state.doc = prepare_document(doc)
-
     st.session_state.topic_input = ''
     st.session_state.topic_select = ''
     st.session_state.clear_topic_inputs = False
+    # Initialize content and history structures
+    st.session_state.content_by_topic: dict[str, list[dict[str, str]]] = {}
+    st.session_state.topic_history: list[str] = []
+    st.session_state.history_stack: list[dict[str, object]] = []
+    st.session_state.current_index = 0
+    st.session_state.actions_since_save = 0
+    st.session_state.last_save_message = None
+    st.session_state.last_export_message = None
+    st.session_state.last_export_success = None
+    st.session_state.initial_export_name = build_export_filename(df)
+    st.session_state.reset_export_name = False
+    st.session_state.export_name = st.session_state.initial_export_name
 
-    if is_new_file:
-        st.session_state.content_by_topic = {}
-        st.session_state.topic_history = []
-        st.session_state.history_stack = []
-        st.session_state.current_index = 0
-        st.session_state.actions_since_save = 0
-        st.session_state.last_save_message = None
-        st.session_state.last_export_message = None
-        st.session_state.last_export_success = None
-        st.session_state.initial_export_name = build_export_filename(df)
-        st.session_state.reset_export_name = False
-        st.session_state.export_name = st.session_state.initial_export_name
-        update_counts()
-        refresh_export_name()
-        advance_to_next_unreviewed()
+    # If this is an existing file, rebuild in-memory doc content from any
+    # previously-saved reviewed bullets so the .docx summary includes past items.
+    if not is_new_file:
+        try:
+            populate_content_from_df(df)
+        except Exception:
+            # If reconstruction fails, leave content_by_topic empty but continue
+            pass
+
+    update_counts()
+    refresh_export_name()
+    advance_to_next_unreviewed()
 
 def update_counts() -> None:
     df = st.session_state.df
@@ -702,14 +710,22 @@ def rebuild_document() -> None:
             doc.add_paragraph()
 
 
-def format_text_for_bullet(row: pd.Series, topic: str) -> None:
+def format_text_for_bullet(row: pd.Series, topic: str, rebuild: bool = True) -> None:
     text = str(row.get("Text", ""))
     url = str(row.get("URL", ""))
     date_value = row.get("Date Correct Format")
     if pd.isna(date_value):
         date_value = row.get("Date")
-    date = pd.to_datetime(date_value)
-    date_str = f"{date.month}/{date.day}/{str(date.year)[2:]}"
+
+    # Defensive date parsing: coerce errors and fall back to 'unknown'
+    try:
+        parsed = pd.to_datetime(date_value, errors="coerce")
+        if pd.isna(parsed):
+            date_str = "unknown"
+        else:
+            date_str = f"{parsed.month}/{parsed.day}/{str(parsed.year)[2:]}"
+    except Exception:
+        date_str = "unknown"
 
     text = text.replace('"', "'").replace("\n", "\u00A0")
     text = normalize_spaces(text)
@@ -717,6 +733,40 @@ def format_text_for_bullet(row: pd.Series, topic: str) -> None:
 
     entries = st.session_state.content_by_topic.setdefault(topic, [])
     entries.append({"quoted_text": quoted, "url": url, "date_str": date_str})
+    if rebuild:
+        rebuild_document()
+
+
+def populate_content_from_df(df: pd.DataFrame) -> None:
+    """Rebuild in-memory content_by_topic and topic_history from a loaded DataFrame.
+
+    This scans rows where `Reviewed` is True and `Bullet topic` is non-empty and
+    repopulates `st.session_state.content_by_topic` so the .docx download includes
+    previously-bulleted tweets saved in the workbook.
+    """
+    st.session_state.content_by_topic = {}
+    st.session_state.topic_history = []
+
+    if df is None or df.empty:
+        return
+    if 'Reviewed' not in df.columns or 'Bullet topic' not in df.columns:
+        return
+
+    for _, row in df.iterrows():
+        try:
+            reviewed = bool(row.get('Reviewed'))
+        except Exception:
+            reviewed = False
+        if not reviewed:
+            continue
+        topic = row.get('Bullet topic', '')
+        if pd.isna(topic) or str(topic).strip() == '':
+            continue
+        topic_upper = str(topic).strip().upper()
+        format_text_for_bullet(row, topic_upper, rebuild=False)
+        if topic_upper not in st.session_state.topic_history:
+            st.session_state.topic_history.append(topic_upper)
+
     rebuild_document()
 
 
