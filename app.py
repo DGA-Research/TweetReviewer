@@ -149,7 +149,7 @@ def derive_export_metadata(df: pd.DataFrame) -> tuple[str, str, str, str]:
         date_series = fallback_date_series
     if date_series is not None and not date_series.dropna().empty:
         try:
-            dates = pd.to_datetime(date_series.dropna())
+            dates = pd.to_datetime(date_series.dropna(), utc=True)
             if not dates.empty:
                 first_date = dates.min().strftime('%Y%m%d')
                 last_tweet_date = dates.max().strftime('%Y%m%d')
@@ -512,11 +512,11 @@ def load_dataframe(file_path: str, mapping_override: dict[str, str] | None = Non
     removed_duplicates = before_dedup - len(df)
 
     if 'Date Correct Format' in df.columns:
-        sort_series = pd.to_datetime(df['Date Correct Format'], errors='coerce')
+        sort_series = pd.to_datetime(df['Date Correct Format'], errors='coerce', utc=True)
     else:
         sort_series = None
     if sort_series is None or sort_series.dropna().empty:
-        sort_series = pd.to_datetime(df['Date'], errors='coerce') if 'Date' in df.columns else None
+        sort_series = pd.to_datetime(df['Date'], errors='coerce', utc=True) if 'Date' in df.columns else None
     if sort_series is not None:
         df = df.assign(_sort_date=sort_series).sort_values('_sort_date', kind='stable', na_position='last').drop(columns='_sort_date').reset_index(drop=True)
 
