@@ -453,6 +453,7 @@ def prepare_document(doc: Document) -> Document:
 
 def load_dataframe(file_path: str, mapping_override: dict[str, str] | None = None) -> tuple[pd.DataFrame, int, int, dict[str, str], list[str]]:
     raw_df = pd.read_excel(file_path)
+    raw_df.columns = raw_df.columns.str.strip()
     source_columns = list(raw_df.columns)
 
     # Auto-detect column mappings
