@@ -1,50 +1,57 @@
-# Deploying Tweet Reviewer on a VPS
+# Deploying Tweet Reviewer on Coolify
 
-This runs the Streamlit app behind a [Caddy](https://caddyserver.com/) reverse proxy
-that provides automatic HTTPS and HTTP basic auth. **Nothing the researchers upload or
-review is stored on the VPS** — all data lives in the GitHub repo (`inputs/` for raw
-uploads, `reviews/` for reviewed outputs). Per-session working files live on a tmpfs
-(RAM) mount and are wiped on every restart.
+This Streamlit app runs on Coolify, which handles TLS (Let's Encrypt), domain routing,
+and reverse proxying via Traefik. **Nothing the researchers upload or review is stored
+on the server** — all data lives in the GitHub repo (`inputs/` for raw uploads, `reviews/`
+for reviewed outputs). Per-session working files live on a tmpfs (RAM) mount and are
+wiped on every restart.
 
 ```
-Researcher browser ──HTTPS──▶ Caddy (TLS + basic auth) ──HTTP──▶ Streamlit app :8501
-                                                                    │ GitHub REST API
-                                                                    ▼
-                                              DGA-Research/TweetReviewer → inputs/  reviews/
+Researcher browser ──HTTPS──▶ Coolify/Traefik (TLS + domain) ──HTTP──▶ Streamlit :8503
+                                                                         │ GitHub REST API
+                                                                         ▼
+                                               DGA-Research/TweetReviewer → inputs/  reviews/
 ```
 
 ## Prerequisites
-- A VPS with Docker + Docker Compose installed.
-- A domain name with an A record pointing at the VPS IP (needed for HTTPS).
+- A [Coolify](https://coolify.io/) instance running.
+- A domain name with an A record pointing at your Coolify server (for HTTPS).
 - A GitHub **fine-grained Personal Access Token** scoped to **only this repo** with
   **Contents: Read and write**.
 
-## 1. Clone and configure
-```bash
-git clone -b feature/Tweet-Reviewer-VPS https://github.com/DGA-Research/TweetReviewer.git
-cd TweetReviewer
-cp .env.example .env
-```
+## 1. Create a Coolify resource
+1. Log into the Coolify dashboard.
+2. **New Resource → Docker Compose**
+3. Point to the GitHub repository: `DGA-Research/TweetReviewer`, branch `feature/Tweet-Reviewer-VPS`
+4. Coolify auto-detects `docker-compose.yml`
 
-Generate the basic-auth password hash:
-```bash
-docker run --rm caddy:2-alpine caddy hash-password --plaintext 'choose-a-strong-password'
-```
+## 2. Set environment variables
+In Coolify's **Environment Variables** tab, add:
 
-Edit `.env` and fill in:
-- `DOMAIN` — your public hostname (e.g. `tweets.example.org`).
-- `BASIC_AUTH_USER` / `BASIC_AUTH_HASH` — shared team login + the hash from above.
-- `GITHUB_TOKEN`, `GITHUB_OWNER`, `GITHUB_REPO`, `GITHUB_BRANCH`.
-- `GITHUB_INPUTS_DIR` (default `inputs`) and `GITHUB_REVIEWS_DIR` (default `reviews`).
+| Key | Value |
+|-----|-------|
+| `GITHUB_TOKEN` | `github_pat_xxx` |
+| `GITHUB_OWNER` | `DGA-Research` |
+| `GITHUB_REPO` | `TweetReviewer` |
+| `GITHUB_BRANCH` | `feature/Tweet-Reviewer-VPS` |
+| `GITHUB_INPUTS_DIR` | `inputs` |
+| `GITHUB_REVIEWS_DIR` | `reviews` |
+| `STREAMLIT_PASSWORD` | (your shared team password) |
 
-## 2. Launch
-```bash
-docker compose up -d --build
-```
-Caddy obtains a TLS certificate automatically on first request. Visit
-`https://<DOMAIN>/`, log in with the basic-auth credentials, and the app loads.
+## 3. Configure the domain
+In Coolify's service settings:
+- Set your **domain** (e.g. `tweets.example.org`)
+- Set **port** to `8503`
+- Coolify auto-provisions TLS and routes traffic
 
-## 3. Daily use (researchers)
+## 4. Deploy
+Hit **Deploy** in Coolify. It builds and starts the container. 
+
+Enable **Auto Deploy** (webhook) if you want Coolify to redeploy on pushes to the branch.
+
+## 5. Daily use (researchers)
+- Visit `https://<your-domain>/`
+- Log in with the `STREAMLIT_PASSWORD`
 - **Upload** a `.xlsx` or `.csv` in the sidebar to start reviewing.
 - Click **"Save input to GitHub (inputs/)"** to store the raw file in the repo so it can
   be reopened later from any machine.
@@ -52,25 +59,25 @@ Caddy obtains a TLS certificate automatically on first request. Visit
   on demand.
 - Use **"Load from GitHub"** to reopen any previously stored input or review.
 
-## 4. Updating the app
-```bash
-git pull
-docker compose up -d --build
-```
+## 6. Update the app
+Push to `feature/Tweet-Reviewer-VPS` branch; if Auto Deploy is enabled, Coolify redeploys
+automatically. Or manually trigger a redeploy in the Coolify dashboard.
 
-## 5. Logs / restart
-```bash
-docker compose logs -f app      # app logs
-docker compose logs -f caddy    # TLS / proxy logs
-docker compose restart app      # working files are wiped (tmpfs); GitHub data is safe
-```
+## 7. Logs / troubleshooting
+In Coolify's dashboard, view **Logs** to see stdout/stderr. Working files (tmpfs) are
+wiped on restart; GitHub data is permanent.
 
-## Local testing (no domain)
-Set `DOMAIN=localhost` in `.env`, then `docker compose up --build` and open
-`https://localhost/` (accept the local self-signed certificate). The app port 8501 is
-intentionally **not** published to the host — all traffic goes through Caddy.
+## Local testing
+```bash
+cp .env.example .env
+# Fill in GITHUB_* and STREAMLIT_PASSWORD
+docker compose up --build
+# Open http://localhost:8503/
+```
 
 ## Notes
 - Use a fine-grained token limited to this single repo; it has write access, so the
-  basic-auth gate in front of the app is what keeps it private.
+  `STREAMLIT_PASSWORD` gate is what keeps it private.
 - GitHub authenticated API limit is 5,000 requests/hour — well above this app's usage.
+- Coolify's Traefik also works with other platforms (any Docker host); the setup above
+  is just the Coolify-specific steps.

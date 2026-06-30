@@ -1,9 +1,8 @@
 [server]
 headless = true
 address = "0.0.0.0"
-port = 8501
-# Safe to disable behind the Caddy reverse proxy, which terminates TLS and
-# forwards from the same Docker network.
+port = 8503
+# Safe to disable on a trusted network or behind a reverse proxy (e.g. Coolify/Traefik).
 enableCORS = false
 enableXsrfProtection = false
 # Max upload size (MB) for researcher workbooks.

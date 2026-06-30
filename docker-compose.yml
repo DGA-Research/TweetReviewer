@@ -3,6 +3,6 @@ services:
     build: .
     restart: unless-stopped
     ports:
-      - "8501:8501"
+      - "8503:8503"
     tmpfs:
       - /app/.sessions
