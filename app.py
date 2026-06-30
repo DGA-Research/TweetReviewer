@@ -985,7 +985,35 @@ def reset_for_rereview() -> None:
     save_progress(force=True)
 
 
+def _check_password() -> bool:
+    """Return True if the user has entered the correct app password.
+
+    Reads STREAMLIT_PASSWORD from env (set in Coolify's env var panel).
+    If the env var is not set, the gate is disabled and everyone can access the app.
+    """
+    required = os.environ.get("STREAMLIT_PASSWORD", "")
+    if not required:
+        return True
+
+    if st.session_state.get("_authenticated"):
+        return True
+
+    st.set_page_config(page_title="Tweet Reviewer — Login", layout="centered")
+    st.title("Tweet Reviewer")
+    st.text_input("Password", type="password", key="_pw_input")
+    if st.button("Log in"):
+        if st.session_state.get("_pw_input") == required:
+            st.session_state["_authenticated"] = True
+            st.rerun()
+        else:
+            st.error("Incorrect password.")
+    return False
+
+
 def main() -> None:
+    if not _check_password():
+        st.stop()
+
     st.set_page_config(page_title="Tweet Reviewer", layout="wide")
     st.title("Tweet Reviewer")
 

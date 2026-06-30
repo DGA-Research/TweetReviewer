@@ -2,39 +2,7 @@ services:
   app:
     build: .
     restart: unless-stopped
-    env_file: .env
-    environment:
-      SESSIONS_ROOT: /app/.sessions
-    # No published host port: only Caddy (same network) can reach the app.
-    expose:
-      - "8501"
-    # Per-session working files live in RAM and are wiped on restart, so
-    # nothing the researchers upload/review ever persists on the VPS disk.
+    ports:
+      - "8501:8501"
     tmpfs:
       - /app/.sessions
-    networks:
-      - tweetnet
-
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    env_file: .env
-    depends_on:
-      - app
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    networks:
-      - tweetnet
-
-networks:
-  tweetnet:
-    driver: bridge
-
-volumes:
-  caddy_data:
-  caddy_config:
