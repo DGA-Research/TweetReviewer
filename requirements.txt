@@ -1,6 +1,5 @@
-streamlit
-pandas
-python-docx
-openpyxl
-streamlit-free-text-select
-datetime
+streamlit==1.40.2
+pandas==2.2.3
+python-docx==1.1.2
+openpyxl==3.1.5
+requests==2.32.3

@@ -1,0 +1,21 @@
+# Caddy reverse proxy: automatic HTTPS (Let's Encrypt) + HTTP basic auth.
+# {$DOMAIN}, {$BASIC_AUTH_USER}, {$BASIC_AUTH_HASH} come from the .env file.
+#
+# Generate BASIC_AUTH_HASH once with:
+#   docker run --rm caddy:2-alpine caddy hash-password --plaintext 'yourpassword'
+#
+# For local testing set DOMAIN=localhost (Caddy serves a local self-signed cert).
+
+{$DOMAIN} {
+	encode gzip
+
+	basic_auth {
+		{$BASIC_AUTH_USER} {$BASIC_AUTH_HASH}
+	}
+
+	reverse_proxy app:8501 {
+		# Streamlit uses websockets for live updates; Caddy proxies them by default.
+		header_up Host {host}
+		header_up X-Real-IP {remote_host}
+	}
+}

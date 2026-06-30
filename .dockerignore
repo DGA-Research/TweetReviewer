@@ -1,0 +1,18 @@
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+__pycache__/
+**/__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Committed sample/output data must not bloat the image — storage lives on GitHub.
+REVIEWED_*.xlsx
+*.docx
+*.xlsx
+
+DEPLOY.md
+README.md

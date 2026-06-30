@@ -1,6 +1,7 @@
 import os
 import re
 import base64
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from io import BytesIO
@@ -17,6 +18,41 @@ from docx.shared import Pt
 
 WORD_FILENAME = "Issue Clipbook.docx"
 SAVE_INTERVAL = 20
+
+# Root for per-session ephemeral working files. In Docker this is a tmpfs mount
+# (RAM-backed, wiped on restart) so nothing persists on the host/VPS.
+SESSIONS_ROOT = os.environ.get("SESSIONS_ROOT", "/app/.sessions")
+
+
+def get_session_dir() -> str:
+    """Return a per-Streamlit-session temp directory for working files.
+
+    Each browser session gets its own directory so concurrent researchers never
+    overwrite each other's uploaded file, working copy, or Word clipbook.
+    """
+    session_dir = st.session_state.get("session_dir")
+    if session_dir and os.path.isdir(session_dir):
+        return session_dir
+    try:
+        os.makedirs(SESSIONS_ROOT, exist_ok=True)
+        session_dir = tempfile.mkdtemp(prefix="sess_", dir=SESSIONS_ROOT)
+    except Exception:
+        # Fall back to the system temp dir (e.g. running locally without /app).
+        session_dir = tempfile.mkdtemp(prefix="tweetrev_sess_")
+    st.session_state.session_dir = session_dir
+    return session_dir
+
+
+def get_word_path() -> str:
+    return os.path.join(get_session_dir(), WORD_FILENAME)
+
+
+def save_working_copy(df: pd.DataFrame, path: str) -> None:
+    """Persist the working dataframe back to its session-local file, matching format."""
+    if str(path).lower().endswith(".csv"):
+        df.to_csv(path, index=False)
+    else:
+        df.to_excel(path, index=False)
 
 
 def auto_detect_column_mapping(df_columns: list[str]) -> dict[str, str]:
@@ -225,26 +261,146 @@ def refresh_export_name() -> None:
 
 
 def get_github_config() -> tuple[bool, dict | str]:
-    if not hasattr(st, 'secrets'):
-        return False, 'Streamlit secrets unavailable; add GitHub credentials to st.secrets'
+    """Resolve GitHub config from environment variables first (Docker/VPS),
+    falling back to Streamlit secrets (Streamlit Cloud compatibility)."""
+    secrets_cfg = {}
+    if hasattr(st, 'secrets'):
+        try:
+            secrets_cfg = dict(st.secrets.get('github', {}))
+        except Exception:
+            secrets_cfg = {}
 
-    cfg = st.secrets.get('github', {})
-    token = cfg.get('token')
-    owner = cfg.get('owner')
-    repo = cfg.get('repo')
-    branch = cfg.get('branch', 'main')
-    target_dir = (cfg.get('target_dir') or '').strip('/')
+    def pick(env_key: str, secret_key: str, default=None):
+        value = os.environ.get(env_key)
+        if value is None or value == '':
+            value = secrets_cfg.get(secret_key)
+        return value if value not in (None, '') else default
+
+    token = pick('GITHUB_TOKEN', 'token')
+    owner = pick('GITHUB_OWNER', 'owner')
+    repo = pick('GITHUB_REPO', 'repo')
+    branch = pick('GITHUB_BRANCH', 'branch', 'main')
+    # reviews_dir keeps the legacy 'target_dir' name for backward compatibility
+    # with prune logic; inputs_dir is where researchers' raw uploads are stored.
+    reviews_dir = (pick('GITHUB_REVIEWS_DIR', 'target_dir', '') or '').strip('/')
+    inputs_dir = (pick('GITHUB_INPUTS_DIR', 'inputs_dir', '') or '').strip('/')
 
     if not token or not owner or not repo:
-        return False, 'Streamlit secrets missing github.token, github.owner, or github.repo'
+        return False, (
+            'Missing GitHub config: set GITHUB_TOKEN / GITHUB_OWNER / GITHUB_REPO '
+            '(environment) or github.token/owner/repo (st.secrets).'
+        )
 
     return True, {
         'token': token,
         'owner': owner,
         'repo': repo,
         'branch': branch,
-        'target_dir': target_dir,
+        'target_dir': reviews_dir,
+        'reviews_dir': reviews_dir,
+        'inputs_dir': inputs_dir,
     }
+
+
+def github_headers(cfg: dict) -> dict:
+    return {
+        'Authorization': f"Bearer {cfg['token']}",
+        'Accept': 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+    }
+
+
+def github_put_bytes(cfg: dict, relative_path: str, content_bytes: bytes, message: str) -> tuple[bool, str]:
+    """Create or update a file in the repo via the GitHub Contents API."""
+    encoded_content = base64.b64encode(content_bytes).decode('utf-8')
+    url = f"https://api.github.com/repos/{cfg['owner']}/{cfg['repo']}/contents/{relative_path}"
+    headers = github_headers(cfg)
+
+    existing_sha = None
+    get_response = requests.get(url, headers=headers, params={'ref': cfg['branch']})
+    if get_response.status_code == 200:
+        existing_sha = get_response.json().get('sha')
+    elif get_response.status_code not in (200, 404):
+        return False, f"GitHub API error ({get_response.status_code}): {get_response.text}"
+
+    payload = {
+        'message': message,
+        'content': encoded_content,
+        'branch': cfg['branch'],
+    }
+    if existing_sha:
+        payload['sha'] = existing_sha
+
+    put_response = requests.put(url, headers=headers, json=payload)
+    if put_response.status_code not in (200, 201):
+        return False, f"GitHub API error ({put_response.status_code}): {put_response.text}"
+
+    return True, f"Uploaded and committed {Path(relative_path).name} to GitHub"
+
+
+def github_list_dir(cfg: dict, directory: str) -> list[dict]:
+    """List the entries of a repo directory; returns [] on any error."""
+    directory = (directory or '').strip('/')
+    base = f"https://api.github.com/repos/{cfg['owner']}/{cfg['repo']}/contents"
+    url = base if not directory else f"{base}/{directory}"
+    try:
+        resp = requests.get(url, headers=github_headers(cfg), params={'ref': cfg['branch']})
+    except Exception:
+        return []
+    if resp.status_code != 200:
+        return []
+    try:
+        entries = resp.json()
+    except ValueError:
+        return []
+    return entries if isinstance(entries, list) else []
+
+
+def github_get_file_bytes(cfg: dict, relative_path: str) -> bytes | None:
+    """Download a single file's raw bytes from the repo."""
+    url = f"https://api.github.com/repos/{cfg['owner']}/{cfg['repo']}/contents/{relative_path}"
+    try:
+        resp = requests.get(url, headers=github_headers(cfg), params={'ref': cfg['branch']})
+    except Exception:
+        return None
+    if resp.status_code != 200:
+        return None
+    try:
+        data = resp.json()
+    except ValueError:
+        return None
+    content = data.get('content')
+    if content and data.get('encoding') == 'base64':
+        try:
+            return base64.b64decode(content)
+        except Exception:
+            pass
+    # Large files (>1MB) come without inline content; use the download URL.
+    download_url = data.get('download_url')
+    if download_url:
+        try:
+            dl = requests.get(download_url, headers=github_headers(cfg))
+            if dl.status_code == 200:
+                return dl.content
+        except Exception:
+            return None
+    return None
+
+
+def push_input_to_github(local_path: str, original_name: str) -> tuple[bool, str]:
+    """Push a researcher's raw input file (xlsx/csv) to the repo's inputs/ folder."""
+    ok, cfg_or_message = get_github_config()
+    if not ok:
+        return False, cfg_or_message
+    cfg = cfg_or_message
+    try:
+        content = Path(local_path).read_bytes()
+    except Exception as exc:
+        return False, f"Failed to read input file: {exc}"
+    safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", original_name) or "input"
+    inputs_dir = cfg['inputs_dir']
+    relative_path = safe_name if not inputs_dir else f"{inputs_dir}/{safe_name}"
+    return github_put_bytes(cfg, relative_path, content, f"Add input file {safe_name}")
 
 
 def save_and_git_commit(destination: Path, df: pd.DataFrame) -> tuple[bool, str]:
@@ -264,37 +420,8 @@ def save_and_git_commit(destination: Path, df: pd.DataFrame) -> tuple[bool, str]
         return False, cfg_or_message
 
     cfg = cfg_or_message
-    encoded_content = base64.b64encode(file_bytes).decode('utf-8')
-
-    relative_path = destination.name if not cfg['target_dir'] else f"{cfg['target_dir']}/{destination.name}"
-    url = f"https://api.github.com/repos/{cfg['owner']}/{cfg['repo']}/contents/{relative_path}"
-    headers = {
-        'Authorization': f"Bearer {cfg['token']}",
-        'Accept': 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28',
-    }
-
-    params = {'ref': cfg['branch']}
-    existing_sha = None
-    get_response = requests.get(url, headers=headers, params=params)
-    if get_response.status_code == 200:
-        existing_sha = get_response.json().get('sha')
-    elif get_response.status_code not in (200, 404):
-        return False, f"GitHub API error ({get_response.status_code}): {get_response.text}"
-
-    payload = {
-        'message': f"Add reviewed tweets {destination.name}",
-        'content': encoded_content,
-        'branch': cfg['branch'],
-    }
-    if existing_sha:
-        payload['sha'] = existing_sha
-
-    put_response = requests.put(url, headers=headers, json=payload)
-    if put_response.status_code not in (200, 201):
-        return False, f"GitHub API error ({put_response.status_code}): {put_response.text}"
-
-    return True, f"Uploaded and committed {destination.name} to GitHub"
+    relative_path = destination.name if not cfg['reviews_dir'] else f"{cfg['reviews_dir']}/{destination.name}"
+    return github_put_bytes(cfg, relative_path, file_bytes, f"Add reviewed tweets {destination.name}")
 
 
 def prune_previous_auto_push_files(current_destination: Path) -> None:
@@ -431,10 +558,30 @@ def prune_older_manual_reviews(current_destination: Path) -> None:
 
 
 
-def list_excel_files() -> list[str]:
+@st.cache_data(ttl=60, show_spinner=False)
+def list_github_workbooks(owner: str, repo: str, branch: str, token: str,
+                          inputs_dir: str, reviews_dir: str) -> list[dict]:
+    """List .xlsx/.csv files available in the repo's inputs/ and reviews/ folders.
 
-
-    return sorted([name for name in os.listdir(".") if name.lower().endswith(".xlsx")])
+    Cached briefly to avoid hammering the GitHub API on every rerun; call
+    ``list_github_workbooks.clear()`` after a push to refresh.
+    """
+    cfg = {'owner': owner, 'repo': repo, 'branch': branch, 'token': token}
+    results: list[dict] = []
+    seen: set[str] = set()
+    for folder_label, directory in (('inputs', inputs_dir), ('reviews', reviews_dir)):
+        for entry in github_list_dir(cfg, directory):
+            if entry.get('type') != 'file':
+                continue
+            name = entry.get('name', '')
+            if not name.lower().endswith(('.xlsx', '.csv')):
+                continue
+            path = entry.get('path') or (f"{directory}/{name}" if directory else name)
+            if path in seen:
+                continue
+            seen.add(path)
+            results.append({'label': f"{folder_label}/{name}", 'path': path, 'name': name})
+    return sorted(results, key=lambda e: e['label'].lower())
 
 
 def prepare_document(doc: Document) -> Document:
@@ -452,7 +599,10 @@ def prepare_document(doc: Document) -> Document:
 
 
 def load_dataframe(file_path: str, mapping_override: dict[str, str] | None = None) -> tuple[pd.DataFrame, int, int, dict[str, str], list[str]]:
-    raw_df = pd.read_excel(file_path)
+    if str(file_path).lower().endswith(".csv"):
+        raw_df = pd.read_csv(file_path)
+    else:
+        raw_df = pd.read_excel(file_path)
     raw_df.columns = raw_df.columns.str.strip()
     source_columns = list(raw_df.columns)
 
@@ -559,10 +709,11 @@ def initialize_state(file_path: str, source_label: str | None = None, mapping_ov
     overrides_store[file_path] = active_override
     st.session_state.original_columns = list(df.columns)
     if removed_missing or removed_duplicates:
-        df.to_excel(file_path, index=False)
+        save_working_copy(df, file_path)
 
-    if os.path.exists(WORD_FILENAME):
-        doc = Document(WORD_FILENAME)
+    word_path = get_word_path()
+    if os.path.exists(word_path):
+        doc = Document(word_path)
     else:
         doc = Document()
     st.session_state.doc = prepare_document(doc)
@@ -610,8 +761,8 @@ def advance_to_next_unreviewed() -> None:
 def save_progress(force: bool = False) -> None:
     if not force and st.session_state.actions_since_save < SAVE_INTERVAL:
         return
-    st.session_state.df.to_excel(st.session_state.excel_path, index=False)
-    st.session_state.doc.save(WORD_FILENAME)
+    save_working_copy(st.session_state.df, st.session_state.excel_path)
+    st.session_state.doc.save(get_word_path())
 
     export_name = st.session_state.get('export_name')
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -620,7 +771,7 @@ def save_progress(force: bool = False) -> None:
         auto_filename = f"{base_destination.stem}_autoPush{base_destination.suffix}" if base_destination.suffix else f"{base_destination.name}_autoPush"
         auto_destination = base_destination.with_name(auto_filename)
         if not auto_destination.is_absolute():
-            auto_destination = Path.cwd() / auto_destination
+            auto_destination = Path(get_session_dir()) / auto_destination
         auto_destination.parent.mkdir(parents=True, exist_ok=True)
         success, message = save_and_git_commit(auto_destination, st.session_state.df)
         st.session_state.last_export_message = message
@@ -830,7 +981,7 @@ def reset_for_rereview() -> None:
     update_counts()
     refresh_export_name()
     advance_to_next_unreviewed()
-    st.session_state.df.to_excel(st.session_state.excel_path, index=False)
+    save_working_copy(st.session_state.df, st.session_state.excel_path)
     save_progress(force=True)
 
 
@@ -838,36 +989,70 @@ def main() -> None:
     st.set_page_config(page_title="Tweet Reviewer", layout="wide")
     st.title("Tweet Reviewer")
 
-    uploaded_file = st.sidebar.file_uploader("Upload Excel workbook", type=["xlsx"])
+    mapping_overrides = st.session_state.setdefault('column_mapping_overrides', {})
+
+    uploaded_file = st.sidebar.file_uploader("Upload workbook (.xlsx or .csv)", type=["xlsx", "csv"])
     if uploaded_file is not None:
         uploaded_bytes = uploaded_file.getvalue()
         file_signature = (uploaded_file.name, len(uploaded_bytes))
         if st.session_state.get("uploaded_file_signature") != file_signature:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            src_suffix = Path(uploaded_file.name).suffix.lower()
+            if src_suffix not in (".xlsx", ".csv"):
+                src_suffix = ".xlsx"
             safe_stem = re.sub(r"[^A-Za-z0-9_-]+", "_", Path(uploaded_file.name).stem) or "workbook"
-            destination = Path(f"uploaded_{timestamp}_{safe_stem}.xlsx")
+            destination = Path(get_session_dir()) / f"uploaded_{timestamp}_{safe_stem}{src_suffix}"
             destination.write_bytes(uploaded_bytes)
             st.session_state.uploaded_file_signature = file_signature
+            # Remember the raw upload so the researcher can push it to inputs/.
+            st.session_state.input_source_path = str(destination)
+            st.session_state.input_source_name = uploaded_file.name
             initialize_state(str(destination), uploaded_file.name)
             trigger_rerun()
             st.stop()
 
-    excel_files = list_excel_files()
-    if not excel_files:
-        st.warning("No Excel workbooks found. Upload a workbook to get started.")
+    # GitHub-backed picker: load any .xlsx/.csv already stored in inputs/ or reviews/.
+    ok_cfg, cfg_or_msg = get_github_config()
+    with st.sidebar.expander("Load from GitHub", expanded=("df" not in st.session_state)):
+        if not ok_cfg:
+            st.caption("GitHub not configured; upload a file to get started.")
+            st.caption(str(cfg_or_msg))
+        else:
+            cfg = cfg_or_msg
+            choices = list_github_workbooks(
+                cfg['owner'], cfg['repo'], cfg['branch'], cfg['token'],
+                cfg['inputs_dir'], cfg['reviews_dir'],
+            )
+            if st.button("Refresh list", key="refresh_github_list"):
+                list_github_workbooks.clear()
+                trigger_rerun()
+            if not choices:
+                st.caption("No .xlsx/.csv files found in inputs/ or reviews/ yet.")
+            else:
+                labels = [c['label'] for c in choices]
+                chosen_label = st.selectbox("Workbook on GitHub", labels, key="github_pick_label")
+                if st.button("Load selected file", key="load_github_file"):
+                    chosen = next((c for c in choices if c['label'] == chosen_label), None)
+                    if chosen is not None:
+                        data = github_get_file_bytes(cfg, chosen['path'])
+                        if data is None:
+                            st.error("Failed to download file from GitHub.")
+                        else:
+                            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                            safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", chosen['name'])
+                            local_path = Path(get_session_dir()) / f"gh_{timestamp}_{safe_name}"
+                            local_path.write_bytes(data)
+                            # File already lives on GitHub; no raw-input push needed.
+                            st.session_state.input_source_path = None
+                            st.session_state.input_source_name = None
+                            initialize_state(str(local_path), chosen['label'],
+                                             mapping_overrides.get(str(local_path)))
+                            trigger_rerun()
+                            st.stop()
+
+    if "df" not in st.session_state:
+        st.warning("Upload a workbook or load one from GitHub to get started.")
         return
-
-    default_index = 0
-    if "excel_path" in st.session_state and st.session_state.excel_path in excel_files:
-        default_index = excel_files.index(st.session_state.excel_path)
-
-    mapping_overrides = st.session_state.setdefault('column_mapping_overrides', {})
-
-    selected_file = st.sidebar.selectbox("Workbook", excel_files, index=default_index, key="workbook_select")
-    selected_override = mapping_overrides.get(selected_file)
-
-    if "excel_path" not in st.session_state or selected_file != st.session_state.excel_path:
-        initialize_state(selected_file, Path(selected_file).name, selected_override)
 
     # Display column mappings
     if st.session_state.get('column_mapping'):
@@ -980,7 +1165,7 @@ def main() -> None:
             if st.sidebar.button("Push xlsx to Git"):
                 destination = Path(st.session_state.export_name)
                 if not destination.is_absolute():
-                    destination = Path.cwd() / destination
+                    destination = Path(get_session_dir()) / destination
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 success, message = save_and_git_commit(destination, st.session_state.df)
                 st.session_state.last_export_message = message
@@ -1012,6 +1197,18 @@ def main() -> None:
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 key="download_word_copy",
             )
+
+        if st.session_state.get("input_source_path"):
+            if st.sidebar.button("Save input to GitHub (inputs/)", key="push_input_github"):
+                ok_in, msg_in = push_input_to_github(
+                    st.session_state["input_source_path"],
+                    st.session_state.get("input_source_name", "input.xlsx"),
+                )
+                st.session_state.last_export_message = msg_in
+                st.session_state.last_export_success = ok_in
+                if ok_in:
+                    list_github_workbooks.clear()
+                trigger_rerun()
     if st.session_state.get("last_export_message"):
         message = st.session_state.last_export_message
         status = st.session_state.get("last_export_success")
