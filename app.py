@@ -1,6 +1,9 @@
 import os
 import re
+import json
 import base64
+import shutil
+import secrets
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -23,24 +26,240 @@ SAVE_INTERVAL = 20
 # (RAM-backed, wiped on restart) so nothing persists on the host/VPS.
 SESSIONS_ROOT = os.environ.get("SESSIONS_ROOT", "/app/.sessions")
 
+# Query-string key holding the session id. Streamlit wipes st.session_state on a
+# browser refresh, so the id has to live somewhere the browser resends -- the URL.
+SESSION_TOKEN_PARAM = "s"
+SNAPSHOT_DF_FILENAME = "snapshot.pkl"
+SNAPSHOT_META_FILENAME = "session.json"
+SESSION_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
+
+# How long an idle session's working files are kept before being swept. Sessions now
+# outlive a refresh, so without this they would accumulate in RAM until the container
+# restarts. Long enough that a reviewer can resume the next morning.
+SESSION_TTL_HOURS = float(os.environ.get("SESSION_TTL_HOURS", "72"))
+
+
+def get_session_token() -> str:
+    """Return this browser session's id, minting one if the URL doesn't carry it.
+
+    The id is stored in the query string so that refreshing the page reattaches to
+    the same working directory instead of orphaning it and starting from scratch.
+    """
+    token = st.session_state.get("session_token")
+    if token:
+        return token
+
+    try:
+        raw = st.query_params.get(SESSION_TOKEN_PARAM)
+    except Exception:
+        raw = None
+
+    # The token is interpolated into a filesystem path, and query params are
+    # user-controlled, so anything not matching the expected shape is discarded
+    # rather than trusted (blocks '../' traversal out of SESSIONS_ROOT).
+    if raw and SESSION_TOKEN_RE.match(str(raw)):
+        token = str(raw)
+    else:
+        token = secrets.token_urlsafe(16)
+        try:
+            st.query_params[SESSION_TOKEN_PARAM] = token
+        except Exception:
+            pass
+
+    st.session_state.session_token = token
+    return token
+
+
+def session_last_active(session_dir: str) -> float:
+    """Timestamp of the most recent write inside a session directory.
+
+    Deliberately looks at the files rather than the directory: every review action
+    overwrites the snapshot in place, which updates the file's mtime but leaves the
+    directory's untouched, so a directory mtime would make an active session look idle.
+    """
+    latest = 0.0
+    try:
+        latest = os.path.getmtime(session_dir)
+    except Exception:
+        return 0.0
+    for name in (SNAPSHOT_DF_FILENAME, SNAPSHOT_META_FILENAME):
+        try:
+            latest = max(latest, os.path.getmtime(os.path.join(session_dir, name)))
+        except Exception:
+            continue
+    return latest
+
+
+def prune_stale_sessions() -> None:
+    """Delete session directories idle for longer than SESSION_TTL_HOURS.
+
+    Sessions now survive a refresh instead of being orphaned, so they need an
+    expiry or they would accumulate in RAM until the container restarts.
+    Runs at most once per Streamlit session.
+    """
+    if st.session_state.get("_pruned_sessions") or SESSION_TTL_HOURS <= 0:
+        return
+    st.session_state._pruned_sessions = True
+
+    cutoff = datetime.now().timestamp() - SESSION_TTL_HOURS * 3600
+    keep = st.session_state.get("session_dir")
+    try:
+        entries = os.listdir(SESSIONS_ROOT)
+    except Exception:
+        return
+    for name in entries:
+        if not name.startswith("sess_"):
+            continue
+        path = os.path.join(SESSIONS_ROOT, name)
+        try:
+            if path == keep or not os.path.isdir(path):
+                continue
+            if session_last_active(path) >= cutoff:
+                continue
+            shutil.rmtree(path, ignore_errors=True)
+        except Exception:
+            continue
+
 
 def get_session_dir() -> str:
-    """Return a per-Streamlit-session temp directory for working files.
+    """Return a per-Streamlit-session directory for working files.
 
     Each browser session gets its own directory so concurrent researchers never
-    overwrite each other's uploaded file, working copy, or Word clipbook.
+    overwrite each other's uploaded file, working copy, or Word clipbook. The
+    directory is keyed by the session token rather than a random mkdtemp name so a
+    page refresh lands back in the same one.
     """
     session_dir = st.session_state.get("session_dir")
     if session_dir and os.path.isdir(session_dir):
         return session_dir
+
+    token = get_session_token()
     try:
         os.makedirs(SESSIONS_ROOT, exist_ok=True)
-        session_dir = tempfile.mkdtemp(prefix="sess_", dir=SESSIONS_ROOT)
+        session_dir = os.path.join(SESSIONS_ROOT, f"sess_{token}")
+        os.makedirs(session_dir, exist_ok=True)
     except Exception:
         # Fall back to the system temp dir (e.g. running locally without /app).
-        session_dir = tempfile.mkdtemp(prefix="tweetrev_sess_")
+        session_dir = os.path.join(tempfile.gettempdir(), f"tweetrev_sess_{token}")
+        os.makedirs(session_dir, exist_ok=True)
+
     st.session_state.session_dir = session_dir
+    prune_stale_sessions()
     return session_dir
+
+
+def write_session_snapshot() -> None:
+    """Persist enough state to resume this session after a browser refresh.
+
+    The dataframe is pickled rather than written as .xlsx: pickle round-trips any
+    dtype an uploaded workbook can produce and costs ~1ms, against ~200ms for
+    .xlsx on a 2,500-row sheet, so it is cheap enough to run after every single
+    review action. That keeps the refresh-recovery gap at zero actions, whereas the
+    GitHub auto-push can only afford to run every SAVE_INTERVAL actions. The file is
+    session-local and sits on the same ephemeral tmpfs as the other working files.
+    """
+    if "df" not in st.session_state:
+        return
+    try:
+        session_dir = get_session_dir()
+        st.session_state.df.to_pickle(os.path.join(session_dir, SNAPSHOT_DF_FILENAME))
+        meta = {
+            "excel_path": st.session_state.get("excel_path"),
+            "source_label": st.session_state.get("source_label"),
+            "export_name": st.session_state.get("export_name"),
+            "initial_export_name": st.session_state.get("initial_export_name"),
+            "current_index": int(st.session_state.get("current_index", 0)),
+            "column_mapping": st.session_state.get("column_mapping", {}),
+            "available_columns": list(st.session_state.get("available_columns", [])),
+            "original_columns": list(st.session_state.get("original_columns", [])),
+            "topic_history": list(st.session_state.get("topic_history", [])),
+            "input_source_path": st.session_state.get("input_source_path"),
+            "input_source_name": st.session_state.get("input_source_name"),
+            "derived_handle": st.session_state.get("derived_handle"),
+            "handle_override": st.session_state.get("handle_override"),
+            "actions_since_save": int(st.session_state.get("actions_since_save", 0)),
+            "removed_rows_without_url": int(st.session_state.get("removed_rows_without_url", 0)),
+            "removed_duplicate_rows": int(st.session_state.get("removed_duplicate_rows", 0)),
+            "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        Path(session_dir, SNAPSHOT_META_FILENAME).write_text(json.dumps(meta))
+    except Exception:
+        # Snapshotting is a safety net; never let it break an in-progress review.
+        pass
+
+
+def restore_session_snapshot() -> bool:
+    """Rehydrate session state from this session's snapshot. True if restored."""
+    session_dir = get_session_dir()
+    df_path = os.path.join(session_dir, SNAPSHOT_DF_FILENAME)
+    meta_path = os.path.join(session_dir, SNAPSHOT_META_FILENAME)
+    if not (os.path.exists(df_path) and os.path.exists(meta_path)):
+        return False
+
+    try:
+        meta = json.loads(Path(meta_path).read_text())
+        df = pd.read_pickle(df_path)
+    except Exception:
+        return False
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        return False
+
+    st.session_state.df = df
+    st.session_state.excel_path = meta.get("excel_path") or os.path.join(session_dir, "restored.xlsx")
+    st.session_state.source_label = meta.get("source_label") or "restored session"
+    st.session_state.column_mapping = meta.get("column_mapping") or {}
+    st.session_state.available_columns = meta.get("available_columns") or list(df.columns)
+    st.session_state.original_columns = meta.get("original_columns") or list(df.columns)
+    st.session_state.input_source_path = meta.get("input_source_path")
+    st.session_state.input_source_name = meta.get("input_source_name")
+    st.session_state.derived_handle = meta.get("derived_handle") or "unknown"
+    st.session_state.handle_override = meta.get("handle_override") or ""
+    st.session_state.removed_rows_without_url = meta.get("removed_rows_without_url", 0)
+    st.session_state.removed_duplicate_rows = meta.get("removed_duplicate_rows", 0)
+    st.session_state.removed_rows = (
+        st.session_state.removed_rows_without_url + st.session_state.removed_duplicate_rows
+    )
+    st.session_state.actions_since_save = meta.get("actions_since_save", 0)
+    st.session_state.current_index = int(meta.get("current_index", 0))
+    # Undo history is deliberately not restored: it references pre-refresh state and
+    # the reviewer can always re-review a row directly.
+    st.session_state.history_stack = []
+    st.session_state.last_save_message = None
+    st.session_state.last_export_message = None
+    st.session_state.last_export_success = None
+
+    # The working .xlsx may lag the snapshot (it is only rewritten every
+    # SAVE_INTERVAL actions), so bring it back in line with the restored rows.
+    try:
+        save_working_copy(df, st.session_state.excel_path)
+    except Exception:
+        pass
+
+    word_path = get_word_path()
+    doc = Document(word_path) if os.path.exists(word_path) else Document()
+    st.session_state.doc = prepare_document(doc)
+
+    st.session_state.topic_input = ""
+    st.session_state.topic_select = ""
+    st.session_state.clear_topic_inputs = False
+    # Both names are restored as they were. refresh_export_name() decides whether the
+    # output filename is still auto-generated by comparing the two, so recomputing
+    # initial_export_name here would make a stale auto-name look hand-edited and
+    # freeze it (e.g. leaving 'UNREVIEWED_' on a workbook that now has review marks).
+    st.session_state.initial_export_name = meta.get("initial_export_name") or build_export_filename(df)
+    st.session_state.reset_export_name = False
+    st.session_state.export_name = meta.get("export_name") or st.session_state.initial_export_name
+
+    update_counts()
+    # Rebuilds the Word bullets from the 'Bullet topic' column, the same way a
+    # workbook reloaded from GitHub is reconstructed.
+    rebuild_content_from_df(df)
+    for topic in meta.get("topic_history", []):
+        if topic not in st.session_state.topic_history:
+            st.session_state.topic_history.append(topic)
+
+    st.session_state.restored_at = meta.get("saved_at")
+    return True
 
 
 def get_word_path() -> str:
@@ -708,6 +927,9 @@ def initialize_state(file_path: str, source_label: str | None = None, mapping_ov
     st.session_state.available_columns = source_columns
     overrides_store[file_path] = active_override
     st.session_state.original_columns = list(df.columns)
+    # Workbook-level handle, used for Word citations when a row's own URL is
+    # unparseable and as the default for the sidebar override field.
+    st.session_state.derived_handle = derive_export_metadata(df)[0]
     if removed_missing or removed_duplicates:
         save_working_copy(df, file_path)
 
@@ -731,6 +953,8 @@ def initialize_state(file_path: str, source_label: str | None = None, mapping_ov
         st.session_state.last_save_message = None
         st.session_state.last_export_message = None
         st.session_state.last_export_success = None
+        # A handle typed for the previous workbook must not leak onto this one.
+        st.session_state.handle_override = ''
         st.session_state.initial_export_name = build_export_filename(df)
         st.session_state.reset_export_name = False
         st.session_state.export_name = st.session_state.initial_export_name
@@ -738,6 +962,9 @@ def initialize_state(file_path: str, source_label: str | None = None, mapping_ov
         refresh_export_name()
         advance_to_next_unreviewed()
         rebuild_content_from_df(df)
+
+    write_session_snapshot()
+
 
 def update_counts() -> None:
     df = st.session_state.df
@@ -789,6 +1016,10 @@ def save_progress(force: bool = False) -> None:
 
 def increment_action_counter() -> None:
     st.session_state.actions_since_save += 1
+    # The restore banner has served its purpose once reviewing resumes.
+    st.session_state.pop('restored_at', None)
+    # Local snapshot every action; the GitHub push still happens every SAVE_INTERVAL.
+    write_session_snapshot()
     save_progress()
 
 
@@ -841,6 +1072,23 @@ def add_hyperlink_date_only(paragraph, prefix: str, date_part: str, suffix: str,
     run_suffix.font.size = Pt(10)
 
 
+def resolve_citation_handle(entry_url: str) -> str:
+    """Handle to print in a Word citation for one tweet.
+
+    A manual override from the sidebar wins; otherwise the handle comes from the
+    tweet's own URL, so a workbook mixing several accounts still cites each one
+    correctly. Falls back to the handle derived for the workbook as a whole.
+    """
+    override = str(st.session_state.get("handle_override", "") or "").strip().lstrip("@")
+    if override:
+        return override
+
+    handle = extract_handle_from_url(entry_url)
+    if handle == "unknown":
+        handle = str(st.session_state.get("derived_handle", "") or "").strip() or "unknown"
+    return handle
+
+
 def rebuild_document() -> None:
     doc = st.session_state.doc
     content = st.session_state.content_by_topic
@@ -854,16 +1102,17 @@ def rebuild_document() -> None:
     for topic in sorted(content.keys()):
         doc.add_paragraph(topic, style="Heading 2")
         for entry in content[topic]:
+            citation_prefix = f"[X, @{resolve_citation_handle(entry['url'])}, "
             para = doc.add_paragraph()
             run = para.add_run(entry["quoted_text"] + " ")
             run.font.name = "Arial"
             run.font.size = Pt(10)
-            add_hyperlink_date_only(para, "[X, @RandyFeenstra, ", entry["date_str"], "]", entry["url"])
+            add_hyperlink_date_only(para, citation_prefix, entry["date_str"], "]", entry["url"])
 
             doc.add_paragraph()
             centered = doc.add_paragraph()
             centered.alignment = 1
-            add_hyperlink_date_only(centered, "[X, @RandyFeenstra, ", entry["date_str"], "]", entry["url"])
+            add_hyperlink_date_only(centered, citation_prefix, entry["date_str"], "]", entry["url"])
             doc.add_paragraph()
 
 
@@ -960,6 +1209,7 @@ def handle_back() -> bool:
     update_counts()
     refresh_export_name()
     advance_to_next_unreviewed()
+    write_session_snapshot()
     return True
 
 
@@ -982,6 +1232,7 @@ def reset_for_rereview() -> None:
     refresh_export_name()
     advance_to_next_unreviewed()
     save_working_copy(st.session_state.df, st.session_state.excel_path)
+    write_session_snapshot()
     save_progress(force=True)
 
 
@@ -1018,6 +1269,17 @@ def main() -> None:
     st.title("Tweet Reviewer")
 
     mapping_overrides = st.session_state.setdefault('column_mapping_overrides', {})
+
+    # A browser refresh gives us a fresh, empty session_state but the same session
+    # token in the URL, so an unfinished review can be picked back up automatically.
+    if "df" not in st.session_state and not st.session_state.get("_restore_attempted"):
+        st.session_state._restore_attempted = True
+        if restore_session_snapshot():
+            trigger_rerun()
+            st.stop()
+
+    if st.session_state.get("restored_at"):
+        st.sidebar.success(f"Session restored from {st.session_state['restored_at']}.")
 
     uploaded_file = st.sidebar.file_uploader("Upload workbook (.xlsx or .csv)", type=["xlsx", "csv"])
     if uploaded_file is not None:
@@ -1155,6 +1417,23 @@ def main() -> None:
                     trigger_rerun()
                     st.stop()
 
+    # Citation handle. Blank means "derive from each tweet's URL", which is right for
+    # almost every workbook; the field exists for URLs the parser can't read or for
+    # citing a renamed account under its current handle.
+    derived_handle = st.session_state.get('derived_handle', 'unknown')
+    st.sidebar.text_input(
+        "X handle for citations",
+        key="handle_override",
+        placeholder=f"@{derived_handle}" if derived_handle != 'unknown' else "@handle",
+        help="Leave blank to take the handle from each tweet's URL. Type one to override every citation in the .docx.",
+    )
+    current_handle_override = str(st.session_state.get('handle_override', '') or '').strip()
+    if current_handle_override != st.session_state.get('_applied_handle_override', ''):
+        st.session_state._applied_handle_override = current_handle_override
+        rebuild_document()
+        write_session_snapshot()
+    st.sidebar.caption(f"Citing as @{resolve_citation_handle('')}")
+
     st.sidebar.metric("Passed", st.session_state.pass_count)
     st.sidebar.metric("Bulleted", st.session_state.bullet_count)
     st.sidebar.metric("Total Reviewed", st.session_state.total_reviewed)
@@ -1278,7 +1557,10 @@ def main() -> None:
     if isinstance(url, str) and url.strip():
         st.markdown(f"[Open Link]({url})")
 
-    st.caption(f"Progress pushed to GitHub every {SAVE_INTERVAL} actions")
+    st.caption(
+        f"Progress is saved after every action and survives a page refresh — "
+        f"keep this tab's URL. Pushed to GitHub every {SAVE_INTERVAL} actions."
+    )
 
     if 'topic_input' not in st.session_state:
         st.session_state.topic_input = ''

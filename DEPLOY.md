@@ -58,6 +58,10 @@ Enable **Auto Deploy** (webhook) if you want Coolify to redeploy on pushes to th
 - Reviewed output auto-pushes to `reviews/` every 20 actions; **"Push xlsx to Git"** pushes
   on demand.
 - Use **"Load from GitHub"** to reopen any previously stored input or review.
+- Refreshing the page does not lose progress: the tab's URL carries a session id
+  (`?s=...`) and reloading it restores the review. Tell researchers to keep the tab —
+  a brand-new tab without that id starts a fresh session. Progress is still only
+  *durable* once auto-pushed to GitHub, since working files are in RAM.
 
 ## 6. Update the app
 Push to `feature/Tweet-Reviewer-VPS` branch; if Auto Deploy is enabled, Coolify redeploys
@@ -65,7 +69,13 @@ automatically. Or manually trigger a redeploy in the Coolify dashboard.
 
 ## 7. Logs / troubleshooting
 In Coolify's dashboard, view **Logs** to see stdout/stderr. Working files (tmpfs) are
-wiped on restart; GitHub data is permanent.
+wiped on restart; GitHub data is permanent. A restart therefore ends any in-progress
+sessions — researchers recover by loading their latest `_autoPush` file from
+**"Load from GitHub"**, so prefer restarting outside review hours.
+
+Session working files sit in RAM (a few MB each) and idle ones are swept after
+`SESSION_TTL_HOURS` (default 72). Lower it if RAM is tight; set it to `0` to disable
+sweeping.
 
 ## Local testing
 ```bash

@@ -9,6 +9,8 @@ Streamlit app for reviewing downloaded tweet spreadsheets. The interface lets yo
 - Automatic `.docx` generation that groups bullet tweets under uppercase topics with live hyperlinks.
 - **GitHub integration**: reviewed outputs auto-push to `reviews/` every 20 actions; raw inputs can be stored in `inputs/` for later access from any session.
 - Per-session isolation: concurrent researchers don't interfere with each other's working files.
+- **Refresh-safe**: progress is saved after every action, so reloading or accidentally closing the tab picks up exactly where you left off.
+- Citation handles come from each tweet's own URL, with a sidebar override.
 
 ## Deployment (Coolify)
 
@@ -54,6 +56,29 @@ Open `http://localhost:8503/`. If `STREAMLIT_PASSWORD` is set, log in first.
 ### 3. Track Progress
 - Sidebar metrics show the counts of passed and bulleted tweets, plus total reviewed.
 - Every 20 actions, the app writes your progress to GitHub (`reviews/REVIEWED_...xlsx`) and refreshes the Word clipbook.
+
+**If the page refreshes, you don't lose anything.** Progress is saved locally after
+every single action, and the tab's URL carries a session id (`?s=...`). Reloading that
+URL restores your rows, your position, and the Word clipbook, and the sidebar confirms
+with "Session restored from ...".
+
+Three things to know:
+- Keep the URL. Opening the app in a brand-new tab (without `?s=...`) starts a new
+  session. Reopen the old tab, or use browser history, to get back to a review.
+- Working files are in RAM and are cleared when the server restarts, and idle sessions
+  are swept after 72 hours (`SESSION_TTL_HOURS`). For anything longer-lived, rely on the
+  GitHub auto-push, which is the durable copy.
+- Don't review the same workbook in two tabs sharing one `?s=...` id (e.g. by
+  duplicating a tab). Both tabs keep working, but they share one saved snapshot, so
+  after a refresh you get whichever tab saved last. To review two workbooks at once,
+  open the app fresh (no `?s=...`) in the second tab.
+
+### 3b. Citation Handle
+The `.docx` cites each tweet as `[X, @handle, date]`. The handle is read from that
+tweet's own URL, so a workbook containing several accounts cites each one correctly.
+Use **X handle for citations** in the sidebar to override it for every citation — useful
+when an account has been renamed or a URL can't be parsed. Leave it blank for the
+automatic behavior.
 
 ### 4. Export & Store
 - **Download buttons**: Get the current workbook and Word clipbook.
