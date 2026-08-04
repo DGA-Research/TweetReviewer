@@ -33,10 +33,19 @@ In Coolify's **Environment Variables** tab, add:
 | `GITHUB_TOKEN` | `github_pat_xxx` |
 | `GITHUB_OWNER` | `DGA-Research` |
 | `GITHUB_REPO` | `TweetReviewer` |
-| `GITHUB_BRANCH` | `feature/Tweet-Reviewer-VPS` |
+| `GITHUB_BRANCH` | `feature/Tweet-Reviewer-VPS` (deploy branch — code only) |
+| `GITHUB_DATA_BRANCH` | `review-data` (**must differ from `GITHUB_BRANCH`**) |
 | `GITHUB_INPUTS_DIR` | `inputs` |
 | `GITHUB_REVIEWS_DIR` | `reviews` |
 | `STREAMLIT_PASSWORD` | (your shared team password) |
+
+> **Do not point `GITHUB_DATA_BRANCH` at the deploy branch while Auto Deploy is on.**
+> The app commits reviewed workbooks every 20 actions. If those commits land on the
+> branch Coolify watches, every auto-push fires the deploy webhook and rebuilds the
+> container *while people are reviewing* — everyone is thrown back to the password
+> screen and their in-RAM progress is wiped. Keeping data on its own branch is what
+> prevents this. The branch is created automatically off `GITHUB_BRANCH` on first use,
+> so existing files under `inputs/` and `reviews/` carry over and stay loadable.
 
 ## 3. Configure the domain
 In Coolify's service settings:
@@ -48,6 +57,8 @@ In Coolify's service settings:
 Hit **Deploy** in Coolify. It builds and starts the container. 
 
 Enable **Auto Deploy** (webhook) if you want Coolify to redeploy on pushes to the branch.
+Safe to leave on **only** if `GITHUB_DATA_BRANCH` differs from `GITHUB_BRANCH` (see the
+warning in step 2) — otherwise the app redeploys itself every 20 review actions.
 
 ## 5. Daily use (researchers)
 - Visit `https://<your-domain>/`

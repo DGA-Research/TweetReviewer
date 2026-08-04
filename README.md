@@ -18,7 +18,7 @@ See [DEPLOY.md](DEPLOY.md) for step-by-step Coolify setup.
 
 **Quick summary:**
 1. Create a Docker Compose resource pointing to this repo, branch `feature/Tweet-Reviewer-VPS`.
-2. Set environment variables: `GITHUB_TOKEN`, `GITHUB_OWNER`, `GITHUB_REPO`, `GITHUB_BRANCH`, `GITHUB_INPUTS_DIR`, `GITHUB_REVIEWS_DIR`, and optionally `STREAMLIT_PASSWORD`.
+2. Set environment variables: `GITHUB_TOKEN`, `GITHUB_OWNER`, `GITHUB_REPO`, `GITHUB_BRANCH`, `GITHUB_DATA_BRANCH`, `GITHUB_INPUTS_DIR`, `GITHUB_REVIEWS_DIR`, and optionally `STREAMLIT_PASSWORD`. Keep `GITHUB_DATA_BRANCH` different from `GITHUB_BRANCH` — see [DEPLOY.md](DEPLOY.md).
 3. Configure domain and port (8503); Coolify handles HTTPS via Let's Encrypt.
 4. Deploy. Researchers log in with the password (if set) and review tweets.
 
@@ -102,7 +102,8 @@ Set these as environment variables (Coolify panel) or in `.env` (local):
 | `GITHUB_TOKEN` | Fine-grained PAT (this repo, Contents r/w) |
 | `GITHUB_OWNER` | Repo owner (e.g. `DGA-Research`) |
 | `GITHUB_REPO` | Repo name (e.g. `TweetReviewer`) |
-| `GITHUB_BRANCH` | Branch (e.g. `feature/Tweet-Reviewer-VPS`) |
+| `GITHUB_BRANCH` | Deploy branch, code only (e.g. `feature/Tweet-Reviewer-VPS`) |
+| `GITHUB_DATA_BRANCH` | Branch reviews are stored on (default: `review-data`). Must differ from `GITHUB_BRANCH` when Auto Deploy is on, or each auto-push redeploys the app mid-review |
 | `GITHUB_INPUTS_DIR` | Folder for raw uploads (default: `inputs`) |
 | `GITHUB_REVIEWS_DIR` | Folder for reviewed outputs (default: `reviews`) |
 | `STREAMLIT_PASSWORD` | (Optional) Shared app password |

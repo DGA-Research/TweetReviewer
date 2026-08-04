@@ -498,7 +498,15 @@ def get_github_config() -> tuple[bool, dict | str]:
     token = pick('GITHUB_TOKEN', 'token')
     owner = pick('GITHUB_OWNER', 'owner')
     repo = pick('GITHUB_REPO', 'repo')
-    branch = pick('GITHUB_BRANCH', 'branch', 'main')
+    # The branch the app's *code* is deployed from. Data is never written here.
+    code_branch = pick('GITHUB_BRANCH', 'branch', 'main')
+    # Reviews and inputs go to a dedicated data branch. Writing them to the deploy
+    # branch fires the host's auto-deploy webhook on every auto-push, rebuilding the
+    # container mid-review: every logged-in session is dropped back to the password
+    # screen and the in-RAM working files are wiped. Keeping data off the deploy
+    # branch is what stops that, so this defaults to a separate branch rather than
+    # to GITHUB_BRANCH. Point it at the deploy branch only if auto-deploy is off.
+    data_branch = pick('GITHUB_DATA_BRANCH', 'data_branch', 'review-data')
     # reviews_dir keeps the legacy 'target_dir' name for backward compatibility
     # with prune logic; inputs_dir is where researchers' raw uploads are stored.
     reviews_dir = (pick('GITHUB_REVIEWS_DIR', 'target_dir', '') or '').strip('/')
@@ -514,11 +522,62 @@ def get_github_config() -> tuple[bool, dict | str]:
         'token': token,
         'owner': owner,
         'repo': repo,
-        'branch': branch,
+        # Every read and write in this module uses 'branch', so pointing it at the
+        # data branch keeps the deploy branch untouched without threading a second
+        # branch name through each call site.
+        'branch': data_branch,
+        'code_branch': code_branch,
+        'data_branch': data_branch,
         'target_dir': reviews_dir,
         'reviews_dir': reviews_dir,
         'inputs_dir': inputs_dir,
     }
+
+
+def ensure_data_branch(cfg: dict) -> tuple[bool, str]:
+    """Make sure the data branch exists, creating it off the deploy branch.
+
+    Branching copies the whole tree, so every workbook already stored under
+    inputs/ and reviews/ comes across and stays loadable from the picker.
+    """
+    if cfg['data_branch'] == cfg['code_branch']:
+        return True, 'Data branch is the deploy branch; nothing to create.'
+    if st.session_state.get('_data_branch_ready') == cfg['data_branch']:
+        return True, 'Data branch already verified this session.'
+
+    base = f"https://api.github.com/repos/{cfg['owner']}/{cfg['repo']}/git/ref"
+    headers = github_headers(cfg)
+    try:
+        resp = requests.get(f"{base}/heads/{cfg['data_branch']}", headers=headers)
+        if resp.status_code == 200:
+            st.session_state._data_branch_ready = cfg['data_branch']
+            return True, 'Data branch exists.'
+        if resp.status_code != 404:
+            return False, f"GitHub API error checking data branch ({resp.status_code}): {resp.text}"
+
+        src = requests.get(f"{base}/heads/{cfg['code_branch']}", headers=headers)
+        if src.status_code != 200:
+            return False, (
+                f"Cannot create data branch '{cfg['data_branch']}': deploy branch "
+                f"'{cfg['code_branch']}' not found ({src.status_code})."
+            )
+        sha = src.json().get('object', {}).get('sha')
+        if not sha:
+            return False, "Could not read the deploy branch's head commit."
+
+        created = requests.post(
+            f"https://api.github.com/repos/{cfg['owner']}/{cfg['repo']}/git/refs",
+            headers=headers,
+            json={'ref': f"refs/heads/{cfg['data_branch']}", 'sha': sha},
+        )
+        # 422 means another session won the race and created it first.
+        if created.status_code not in (200, 201, 422):
+            return False, f"Failed to create data branch ({created.status_code}): {created.text}"
+    except Exception as exc:
+        return False, f"Failed to reach GitHub while preparing the data branch: {exc}"
+
+    st.session_state._data_branch_ready = cfg['data_branch']
+    return True, f"Created data branch '{cfg['data_branch']}'."
 
 
 def github_headers(cfg: dict) -> dict:
@@ -616,6 +675,10 @@ def push_input_to_github(local_path: str, original_name: str) -> tuple[bool, str
         content = Path(local_path).read_bytes()
     except Exception as exc:
         return False, f"Failed to read input file: {exc}"
+    ok_branch, branch_message = ensure_data_branch(cfg)
+    if not ok_branch:
+        return False, branch_message
+
     safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", original_name) or "input"
     inputs_dir = cfg['inputs_dir']
     relative_path = safe_name if not inputs_dir else f"{inputs_dir}/{safe_name}"
@@ -639,6 +702,10 @@ def save_and_git_commit(destination: Path, df: pd.DataFrame) -> tuple[bool, str]
         return False, cfg_or_message
 
     cfg = cfg_or_message
+    ok_branch, branch_message = ensure_data_branch(cfg)
+    if not ok_branch:
+        return False, branch_message
+
     relative_path = destination.name if not cfg['reviews_dir'] else f"{cfg['reviews_dir']}/{destination.name}"
     return github_put_bytes(cfg, relative_path, file_bytes, f"Add reviewed tweets {destination.name}")
 
@@ -1309,6 +1376,11 @@ def main() -> None:
             st.caption(str(cfg_or_msg))
         else:
             cfg = cfg_or_msg
+            # Create the data branch up front so the picker can list from it on a
+            # fresh deployment, before any review has been pushed.
+            ok_branch, branch_message = ensure_data_branch(cfg)
+            if not ok_branch:
+                st.warning(branch_message)
             choices = list_github_workbooks(
                 cfg['owner'], cfg['repo'], cfg['branch'], cfg['token'],
                 cfg['inputs_dir'], cfg['reviews_dir'],
@@ -1316,6 +1388,7 @@ def main() -> None:
             if st.button("Refresh list", key="refresh_github_list"):
                 list_github_workbooks.clear()
                 trigger_rerun()
+            st.caption(f"Storing on branch `{cfg['data_branch']}`")
             if not choices:
                 st.caption("No .xlsx/.csv files found in inputs/ or reviews/ yet.")
             else:
