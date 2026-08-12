@@ -274,40 +274,42 @@ def save_working_copy(df: pd.DataFrame, path: str) -> None:
         df.to_excel(path, index=False)
 
 
+def _match_column(df_columns: list[str], patterns: list[str], preferred: str | None = None) -> str | None:
+    """Pick the first column whose lowercased name matches one of the patterns.
+
+    Names can collide case-insensitively (a scrape export may carry both 'URL'
+    and 'url'); when they do, prefer the column already named exactly like the
+    internal name so no rename is needed, otherwise keep the leftmost one.
+    """
+    lookup: dict[str, list[str]] = {}
+    for col in df_columns:
+        lookup.setdefault(col.lower(), []).append(col)
+
+    for pattern in patterns:
+        candidates = lookup.get(pattern)
+        if not candidates:
+            continue
+        if preferred and preferred in candidates:
+            return preferred
+        return candidates[0]
+    return None
+
+
 def auto_detect_column_mapping(df_columns: list[str]) -> dict[str, str]:
     """Auto-detect column mappings based on common patterns."""
-    columns_lower = {col.lower(): col for col in df_columns}
     mapping = {}
 
-    # URL mapping
-    for pattern in ['url']:
-        if pattern in columns_lower:
-            mapping['url'] = columns_lower[pattern]
-            break
-
-    # Text mapping
-    for pattern in ['text', 'content', 'tweet', 'message']:
-        if pattern in columns_lower:
-            mapping['text'] = columns_lower[pattern]
-            break
-
-    # Date mapping
-    for pattern in ['date correct format', 'date', 'createdat', 'created_at', 'timestamp', 'posted_at']:
-        if pattern in columns_lower:
-            mapping['date'] = columns_lower[pattern]
-            break
-
-    # Quote tweet mapping
-    for pattern in ['is_quote_tweet', 'isquote', 'is_quote', 'quote tweet', 'quote_tweet']:
-        if pattern in columns_lower:
-            mapping['quote'] = columns_lower[pattern]
-            break
-
-    # Bad words mapping (optional)
-    for pattern in ['bad_words_found', 'flags', 'warnings']:
-        if pattern in columns_lower:
-            mapping['bad_words'] = columns_lower[pattern]
-            break
+    candidates = {
+        'url': (['url'], 'URL'),
+        'text': (['text', 'content', 'tweet', 'message'], 'Text'),
+        'date': (['date correct format', 'date', 'createdat', 'created_at', 'timestamp', 'posted_at'], 'Date'),
+        'quote': (['is_quote_tweet', 'isquote', 'is_quote', 'quote tweet', 'quote_tweet'], 'is_quote_tweet'),
+        'bad_words': (['bad_words_found', 'flags', 'warnings'], 'bad_words_found'),
+    }
+    for key, (patterns, preferred) in candidates.items():
+        match = _match_column(df_columns, patterns, preferred)
+        if match:
+            mapping[key] = match
 
     return mapping
 
@@ -935,8 +937,16 @@ def load_dataframe(file_path: str, mapping_override: dict[str, str] | None = Non
     if bad_words_col and bad_words_col != 'bad_words_found':
         rename_map[bad_words_col] = 'bad_words_found'
 
-    # Apply renames
+    # Apply renames. Drop any unmapped column that already carries the internal
+    # name first, otherwise the rename would leave two columns with that name
+    # and df[name] would return a DataFrame instead of a Series.
     if rename_map:
+        conflicts = [
+            col for col in df.columns
+            if col in rename_map.values() and col not in rename_map
+        ]
+        if conflicts:
+            df = df.drop(columns=conflicts)
         df = df.rename(columns=rename_map)
 
     original = len(df)
